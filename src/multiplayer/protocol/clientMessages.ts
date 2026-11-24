@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NO_ROOM_MODIFIERS, roomModifiersSchema } from '@data/schemas/roomModifiers';
 
 /**
  * Mensagens que o cliente envia ao servidor. O servidor nunca confia no que chega: tudo passa por este esquema
@@ -6,6 +7,7 @@ import { z } from 'zod';
  */
 
 export const MAXIMUM_PLAYER_NAME_LENGTH = 20;
+export const MAXIMUM_ROOM_PASSWORD_LENGTH = 20;
 /** Mensagens maiores que isto são recusadas pela conexão antes mesmo de serem lidas. */
 export const MAXIMUM_MESSAGE_BYTES = 2048;
 
@@ -15,6 +17,14 @@ const playerNameSchema = z
   .min(1)
   .max(MAXIMUM_PLAYER_NAME_LENGTH)
   .refine((name) => !/\p{Cc}/u.test(name), 'O nome não pode ter caracteres de controle.');
+
+const roomPasswordSchema = z
+  .string()
+  .min(1)
+  .max(MAXIMUM_ROOM_PASSWORD_LENGTH)
+  .refine((password) => !/\p{Cc}/u.test(password), 'A senha não pode ter caracteres de controle.');
+
+const roomVisibilitySchema = z.enum(['public', 'private']);
 
 const roomCodeSchema = z
   .string()
@@ -30,8 +40,18 @@ const locationSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const clientMessageSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('create_room'), playerName: playerNameSchema }),
-  z.strictObject({ type: z.literal('join_room'), roomCode: roomCodeSchema, playerName: playerNameSchema }),
+  z.strictObject({
+    type: z.literal('create_room'),
+    playerName: playerNameSchema,
+    /** Pública aparece na lista de salas; privada só se entra com o código. */
+    visibility: roomVisibilitySchema.default('public'),
+    /** Senha opcional (vale para sala pública ou privada). */
+    password: roomPasswordSchema.optional(),
+    modifiers: roomModifiersSchema.default(NO_ROOM_MODIFIERS),
+  }),
+  z.strictObject({ type: z.literal('join_room'), roomCode: roomCodeSchema, playerName: playerNameSchema, password: roomPasswordSchema.optional() }),
+  z.strictObject({ type: z.literal('list_rooms') }),
+  z.strictObject({ type: z.literal('quick_match'), playerName: playerNameSchema }),
   z.strictObject({ type: z.literal('leave_room') }),
   z.strictObject({ type: z.literal('start_match') }),
   z.strictObject({ type: z.literal('buy'), shopSlot: z.number().int().min(0).max(9) }),
@@ -42,12 +62,15 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('set_ready'), ready: z.boolean() }),
 ]);
 
-export type ClientMessage = z.infer<typeof clientMessageSchema>;
+/** O que o cliente monta e envia (campos com valor padrão podem faltar). */
+export type ClientMessage = z.input<typeof clientMessageSchema>;
+/** O que o servidor entende depois de validar (os valores padrão já preenchidos). */
+export type ParsedClientMessage = z.output<typeof clientMessageSchema>;
 
 /** Mensagens que mexem no jogo em andamento (as demais cuidam da sala). */
-export type GameActionMessage = Extract<ClientMessage, { type: 'buy' | 'refresh_shop' | 'toggle_freeze' | 'sell' | 'move' | 'set_ready' }>;
+export type GameActionMessage = Extract<ParsedClientMessage, { type: 'buy' | 'refresh_shop' | 'toggle_freeze' | 'sell' | 'move' | 'set_ready' }>;
 
-export type ParseResult = { readonly ok: true; readonly message: ClientMessage } | { readonly ok: false; readonly reason: string };
+export type ParseResult = { readonly ok: true; readonly message: ParsedClientMessage } | { readonly ok: false; readonly reason: string };
 
 /** Lê o texto recebido da rede: JSON válido, tamanho limitado e formato conhecido. */
 export function parseClientMessage(rawText: string): ParseResult {
@@ -64,6 +87,6 @@ export function parseClientMessage(rawText: string): ParseResult {
   return parsed.success ? { ok: true, message: parsed.data } : { ok: false, reason: 'invalid_message' };
 }
 
-export function isGameAction(message: ClientMessage): message is GameActionMessage {
+export function isGameAction(message: ParsedClientMessage): message is GameActionMessage {
   return ['buy', 'refresh_shop', 'toggle_freeze', 'sell', 'move', 'set_ready'].includes(message.type);
 }

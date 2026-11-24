@@ -1,17 +1,30 @@
 import type { CombatConfig } from '@combat/engine/CombatSimulation';
 import type { GameContent } from '@data/schemas/content';
+import type { RoomModifiers } from '@data/schemas/roomModifiers';
 import type { CombatResult } from '@combat/engine/result';
 import type { ActionFailure } from '@core/players/playerActions';
 import type { UnitLocation } from '@core/players/playerState';
 
 /** Mensagens que o servidor envia aos clientes. Só dados simples (JSON): nada de funções nem de referências internas. */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** A partida é sempre de 4 jogadores; vagas sem pessoa são preenchidas por bots. */
 export const PLAYERS_PER_MATCH = 4;
 
 export type RoomStatus = 'lobby' | 'playing';
+export type RoomVisibility = 'public' | 'private';
+
+/** Uma sala da lista pública. */
+export interface RoomSummaryView {
+  readonly roomCode: string;
+  readonly hostName: string;
+  readonly playerCount: number;
+  readonly maximumPlayers: number;
+  readonly hasPassword: boolean;
+  readonly status: RoomStatus;
+  readonly modifiers: RoomModifiers;
+}
 
 export interface RoomMemberView {
   readonly playerId: string;
@@ -74,13 +87,25 @@ export type ServerMessage =
   /** O administrador publicou conteúdo novo: o cliente deve pedir que a pessoa recarregue a página. */
   | { readonly type: 'content_updated'; readonly contentVersion: number }
   | { readonly type: 'room_joined'; readonly roomCode: string; readonly playerId: string }
-  | { readonly type: 'room_state'; readonly roomCode: string; readonly status: RoomStatus; readonly members: readonly RoomMemberView[] }
+  | {
+      readonly type: 'room_state';
+      readonly roomCode: string;
+      readonly status: RoomStatus;
+      readonly members: readonly RoomMemberView[];
+      readonly visibility: RoomVisibility;
+      readonly hasPassword: boolean;
+      readonly modifiers: RoomModifiers;
+    }
+  /** Resposta a `list_rooms`: só as salas públicas. */
+  | { readonly type: 'room_list'; readonly rooms: readonly RoomSummaryView[] }
   | { readonly type: 'room_closed' }
   | {
       readonly type: 'match_started';
       readonly players: readonly PublicPlayerView[];
       readonly synergyMapping: Readonly<Record<string, string>>;
       readonly rotationIndex: number;
+      /** Regras especiais da sala (vidas, tempos, renda e status extras). */
+      readonly modifiers: RoomModifiers;
       /** Versão do conteúdo com que a partida foi criada; se for diferente da do cliente, ele precisa recarregar a página. */
       readonly contentVersion: number;
     }
@@ -119,6 +144,7 @@ export type ServerErrorCode =
   | 'already_in_room'
   | 'room_not_found'
   | 'room_full'
+  | 'wrong_password'
   | 'match_in_progress'
   | 'not_host'
   | 'no_match_running'

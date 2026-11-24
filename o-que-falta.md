@@ -61,6 +61,7 @@ O que ficou de fora:
 - **Reconexão:** quem cai vira bot e não pode voltar. Seria preciso um token de sessão por jogador (gerado no servidor, guardado no cliente) e um estado `connected` que volte a `true`. Não escrever o token em arquivo versionado. Hoje o cliente mostra "Conexão perdida" e leva ao saguão.
 - **Espectador:** jogador eliminado continua recebendo as rodadas, mas sem tela de espectador (não vê os combates dos outros).
 - **Computador lento:** se a animação não acompanha o relógio do servidor, a cena pula o resultado daquela rodada (ver Seção 14). Pode valer um botão "pular animação" ou um tempo máximo de combate no cliente.
+- **Hub de salas (Seção 18):** a lista pública não tem busca nem filtro e mostra até 50 salas; as regras da sala não podem ser mudadas depois de criada; não há expulsar jogador nem passar o anfitrião de volta; a senha da sala viaja sem criptografia (sem TLS). Quem cai de uma partida não volta (ver Reconexão).
 - **Teste entre duas máquinas:** o modo `--lan` ainda não foi testado entre duas máquinas. O endereço padrão do cliente é `ws://<host da página>:8787`; numa página `https` o navegador bloqueia `ws://` (não há TLS).
 - **Sem login e sem TLS:** aceitável só na rede de confiança. Uma sala por vez por conexão e nenhuma lista de salas públicas.
 - **Hora do servidor:** `Room` usa `scheduler.nowMs()` para o índice de rotação das sinergias (2 dias a partir de `2026-01-01T00:00:00Z`); o relógio da máquina do servidor precisa estar certo. O cliente calcula a contagem de rotação com o relógio dele.

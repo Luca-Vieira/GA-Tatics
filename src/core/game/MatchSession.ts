@@ -73,6 +73,8 @@ export interface SessionListener {
 export interface MatchSession {
   readonly humanId: string;
   readonly match: MatchView;
+  /** Regras especiais da sala em texto curto, para mostrar no começo da partida (vazio = regras normais). */
+  readonly roomRules: readonly string[];
   /** Sprites a carregar antes de a partida aparecer (vazio na partida local, que usa só o desenho provisório). */
   readonly spriteSources: readonly SpriteSource[];
   /** Tempo que resta da preparação, em milissegundos. */

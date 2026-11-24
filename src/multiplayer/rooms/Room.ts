@@ -4,7 +4,10 @@ import { Game } from '@core/game/Game';
 import { rotationIndexAt, synergyMappingForIndex } from '@core/synergies/rotation';
 import type { ContentSnapshot } from '../host/contentStore';
 import type { GameActionMessage } from '../protocol/clientMessages';
-import { PLAYERS_PER_MATCH, type RoomMemberView, type RoomStatus, type ServerErrorCode, type ServerMessage } from '../protocol/serverMessages';
+import { applyRoomModifiers, combatRulesOf } from '@core/game/roomModifiers';
+import { NO_ROOM_MODIFIERS, type RoomModifiers } from '@data/schemas/roomModifiers';
+import { PLAYERS_PER_MATCH, type RoomMemberView, type RoomStatus, type RoomSummaryView, type RoomVisibility, type ServerErrorCode, type ServerMessage } from '../protocol/serverMessages';
+import { RoomPassword } from './roomPassword';
 import { MatchController } from '../host/MatchController';
 import type { Scheduler } from '../host/scheduler';
 
@@ -26,6 +29,16 @@ interface Member {
   connected: boolean;
 }
 
+/** Como a sala foi criada: quem pode ver, senha e regras especiais. */
+export interface RoomSettings {
+  readonly visibility: RoomVisibility;
+  /** Senha em texto, só para criar o resumo; a sala não a guarda. */
+  readonly password?: string;
+  readonly modifiers: RoomModifiers;
+}
+
+export const DEFAULT_ROOM_SETTINGS: RoomSettings = { visibility: 'public', modifiers: NO_ROOM_MODIFIERS };
+
 export type RoomResult<Value = void> = { readonly ok: true; readonly value: Value } | { readonly ok: false; readonly code: ServerErrorCode };
 
 /** Sala: reúne até 4 pessoas, depois roda a partida (com bots nas vagas livres) e volta ao saguão quando ela acaba. */
@@ -37,9 +50,44 @@ export class Room {
   private status: RoomStatus = 'lobby';
   private match: MatchController | null = null;
 
-  constructor(code: string, dependencies: RoomDependencies) {
+  readonly visibility: RoomVisibility;
+  readonly modifiers: RoomModifiers;
+  private readonly password: RoomPassword | null;
+
+  constructor(code: string, dependencies: RoomDependencies, settings: RoomSettings = DEFAULT_ROOM_SETTINGS) {
     this.code = code;
     this.dependencies = dependencies;
+    this.visibility = settings.visibility;
+    this.modifiers = settings.modifiers;
+    this.password = settings.password ? RoomPassword.create(settings.password) : null;
+  }
+
+  get hasPassword(): boolean {
+    return this.password !== null;
+  }
+
+  /** Sem senha, qualquer um passa; com senha, só quem a digitou certo. */
+  acceptsPassword(candidate: string | undefined): boolean {
+    return this.password === null || (candidate !== undefined && this.password.matches(candidate));
+  }
+
+  /** Está no saguão e ainda tem vaga? */
+  get isOpenForPlayers(): boolean {
+    return this.status === 'lobby' && this.members.length < PLAYERS_PER_MATCH;
+  }
+
+  /** Resumo para a lista de salas públicas. */
+  summary(): RoomSummaryView {
+    const host = this.members.find((member) => member.connectionId === this.hostConnectionId);
+    return {
+      roomCode: this.code,
+      hostName: host?.name ?? '—',
+      playerCount: this.members.length,
+      maximumPlayers: PLAYERS_PER_MATCH,
+      hasPassword: this.hasPassword,
+      status: this.status,
+      modifiers: this.modifiers,
+    };
   }
 
   get isEmpty(): boolean {
@@ -103,6 +151,7 @@ export class Room {
       send: (playerId, message) => this.sendToPlayer(playerId, message),
       onEnded: () => this.returnToLobby(),
       contentVersion: snapshot.version,
+      modifiers: this.modifiers,
     });
     this.broadcastRoomState();
     this.match.start();
@@ -138,7 +187,8 @@ export class Room {
       seed: this.dependencies.createMatchSeed(),
       roster: this.dependencies.roster ?? content.characters,
       players: [...humans, ...bots],
-      config: content.config,
+      config: applyRoomModifiers(content.config, this.modifiers),
+      combatRules: combatRulesOf(this.modifiers),
       synergies: content.synergies,
       synergyRotation: content.rotation,
       synergyMapping: synergyMappingForIndex(rotationIndex, content.rotation, content.initialSynergyMapping, synergyIds),
@@ -174,7 +224,17 @@ export class Room {
       isHost: member.connectionId === this.hostConnectionId,
       connected: member.connected,
     }));
-    this.members.forEach((member) => this.sendToMember(member, { type: 'room_state', roomCode: this.code, status: this.status, members }));
+    this.members.forEach((member) =>
+      this.sendToMember(member, {
+        type: 'room_state',
+        roomCode: this.code,
+        status: this.status,
+        members,
+        visibility: this.visibility,
+        hasPassword: this.hasPassword,
+        modifiers: this.modifiers,
+      }),
+    );
   }
 
   private sendToPlayer(playerId: string, message: ServerMessage): void {

@@ -36,6 +36,7 @@ export class LocalMatchSession implements MatchSession {
   readonly humanId = LOCAL_HUMAN_ID;
   readonly match: Game;
   readonly spriteSources: readonly SpriteSource[] = [];
+  readonly roomRules: readonly string[] = [];
 
   private listener: SessionListener = NO_LISTENER;
   private phase: LocalPhase = 'preparation';

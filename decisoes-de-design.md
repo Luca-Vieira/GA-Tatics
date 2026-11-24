@@ -229,3 +229,24 @@ Pedido do dono: como as sinergias mexem direto nos atributos, poder **criar sine
 - **Referência (`merge-do-escritorio-referencia-de-conteudo.json`):** agora cobre também as sinergias (limites, passos para criar, cada tipo de bônus com exemplo, JSON Schema e exemplos). O arquivo passou a se chamar "referência de conteúdo".
 - **Limites:** o ícone da sinergia é só um texto (o jogo ainda não desenha ícones) e os níveis são editados por formulário, mas os efeitos novos de sinergia (um tipo novo de bônus) ainda exigem código.
 
+## 18. Hub de salas, partida rápida e regras de sala
+
+Pedido do dono: ver as salas abertas, ter partida rápida, criar sala privada ou pública (com senha) e escolher modificadores de sala.
+- **Fluxo:** sem conexão, a tela inicial tem "Jogar contra bots" e "Conectar" (nome + endereço do servidor). Conectado, o **hub** mostra "Partida rápida", "Criar sala", "Entrar com código" (com senha, se tiver) e a **lista de salas públicas** (anfitrião, código, jogadores, cadeado, em partida/aguardando e as regras ativas), que se atualiza sozinha a cada 3 s. Salas com senha pedem a senha ao clicar em "Entrar". Dentro da sala aparecem código, visibilidade, cadeado, regras e jogadores.
+- **Pública × privada:** pública aparece na lista; privada só entra quem tem o código. **A senha é independente da visibilidade** (qualquer uma das duas pode ter senha, e é opcional).
+- **Partida rápida:** entra numa sala pública, aberta (no saguão e com vaga) e **sem senha**, preferindo as de regras normais; se não houver, cria uma sala pública com regras normais. (Interpretei "entra em uma sala aberta" assim.)
+- **Senha de sala:** o servidor guarda só o resumo (scrypt com sal próprio) e confere em tempo constante; o texto nunca é enviado de volta nem aparece na lista. A senha é conferida antes de saber se a sala está cheia ou em partida (quem erra não descobre isso). **Mais de 8 senhas erradas seguidas fecham a conexão.** É uma senha para jogar entre amigos: sem HTTPS ela trafega sem criptografia.
+- **Modificadores (escolhidos por quem cria; valem para todos da sala, bots inclusive):**
+
+| Regra | Opções | Efeito |
+| --- | --- | --- |
+| Vidas extras | +1 a +3 | soma às vidas iniciais |
+| Mais tempo de preparação | +10, +20, +30 s | soma ao tempo de cada preparação (inclusive a curta) |
+| Mais tempo de combate | +10, +20, +30 s | soma ao limite de 30 s de cada combate (o "turno" de luta) |
+| Mais dinheiro por rodada | +1 a +3, +5 | soma à renda de cada rodada |
+| Mais status | +10, +25, +50 % | multiplica a vida e o dano de todas as unidades (inclui a torre) |
+
+  Implementação: `applyRoomModifiers` (vidas, preparação, renda) e `combatRulesOf` (status e tempo de combate) em `src/core/game/roomModifiers.ts`; o esquema e os tetos estão em `src/data/schemas/roomModifiers.ts` (o servidor recusa valores fora deles). O servidor manda os modificadores no `match_started`, e o cliente aplica a mesma função à configuração para mostrar os mesmos corações, tempos e renda; o `combatConfig` já traz os status e o limite de tempo. No começo da partida a interface mostra "Regras da sala: ..." por alguns segundos. As regras são fixas depois que a sala é criada.
+- **Protocolo (versão 3):** `create_room` ganha `visibility` (padrão `public`), `password` e `modifiers`; `join_room` ganha `password`; novas mensagens `list_rooms` → `room_list` e `quick_match`; `room_state` e `match_started` trazem visibilidade, cadeado e regras; novo erro `wrong_password`. O tipo `ClientMessage` passou a ser o que o cliente envia e `ParsedClientMessage` o que o servidor entende depois de validar (com os padrões preenchidos).
+- **Pendências de balanceamento:** os tetos são palpites. Combinar "+50% de status" com muito tempo de combate muda a duração dos combates (a faixa de 15 a 25 s do GDD vale só para regras normais).
+

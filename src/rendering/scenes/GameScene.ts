@@ -47,6 +47,8 @@ const COMBAT_SETTLE_MS = 1400;
 const RESTING_WAIT_MS = 2500;
 const UI_REFRESH_INTERVAL_MS = 250;
 const TOAST_DURATION_MS = 1800;
+/** As regras da sala ficam um pouco mais na tela, para dar tempo de ler. */
+const ROOM_RULES_TOAST_MS = 6000;
 
 /** `waiting`: o resultado já foi fechado e a próxima rodada ainda não começou (só acontece em rede). */
 type Stage = 'preparation' | 'combat' | 'resting' | 'result' | 'waiting' | 'ended';
@@ -238,6 +240,9 @@ export class GameScene extends Phaser.Scene {
     this.isMatchOver = false;
     session.setListener(this.createSessionListener());
     session.start();
+    if (session.roomRules.length > 0) {
+      this.toast(`Regras da sala: ${session.roomRules.join(' · ')}`, TEXT_COLORS.gold, ROOM_RULES_TOAST_MS);
+    }
   }
 
   private createSessionListener(): SessionListener {
@@ -472,10 +477,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private toast(message: string, color: string): void {
+  private toast(message: string, color: string, durationMs = TOAST_DURATION_MS): void {
     this.toastTween?.stop();
     this.toastText.setText(message).setColor(color).setAlpha(1);
-    this.toastTween = this.tweens.add({ targets: this.toastText, alpha: 0, delay: TOAST_DURATION_MS, duration: 400 });
+    this.toastTween = this.tweens.add({ targets: this.toastText, alpha: 0, delay: durationMs, duration: 400 });
   }
 
   // --- Atualização da interface -------------------------------------------------------------------

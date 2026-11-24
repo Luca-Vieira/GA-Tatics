@@ -1,4 +1,5 @@
-import type { RoomMemberView, RoomStatus, ServerErrorCode, ServerMessage } from '../protocol/serverMessages';
+import { NO_ROOM_MODIFIERS, type RoomModifiers } from '@data/schemas/roomModifiers';
+import type { RoomMemberView, RoomStatus, RoomSummaryView, RoomVisibility, ServerErrorCode, ServerMessage } from '../protocol/serverMessages';
 import { RemoteMatchSession } from './RemoteMatchSession';
 import type { ServerConnection } from './ServerConnection';
 
@@ -7,9 +8,19 @@ export interface LobbyState {
   readonly playerId: string | null;
   readonly status: RoomStatus;
   readonly members: readonly RoomMemberView[];
+  readonly visibility: RoomVisibility;
+  readonly hasPassword: boolean;
+  readonly modifiers: RoomModifiers;
 }
 
-const EMPTY_STATE: LobbyState = { roomCode: null, playerId: null, status: 'lobby', members: [] };
+const EMPTY_STATE: LobbyState = { roomCode: null, playerId: null, status: 'lobby', members: [], visibility: 'public', hasPassword: false, modifiers: NO_ROOM_MODIFIERS };
+
+/** O que quem cria a sala escolhe. */
+export interface CreateRoomOptions {
+  readonly visibility?: RoomVisibility;
+  readonly password?: string;
+  readonly modifiers?: Partial<RoomModifiers>;
+}
 
 export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = {
   invalid_message: 'O servidor não entendeu a mensagem.',
@@ -20,6 +31,7 @@ export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = 
   already_in_room: 'Você já está em uma sala.',
   room_not_found: 'Sala não encontrada. Confira o código.',
   room_full: 'A sala está cheia.',
+  wrong_password: 'Senha da sala incorreta.',
   match_in_progress: 'A partida dessa sala já começou.',
   not_host: 'Só o anfitrião pode iniciar a partida.',
   no_match_running: 'Não há partida em andamento.',
@@ -28,13 +40,16 @@ export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = 
 };
 
 /**
- * Saguão visto pelo cliente: acompanha a sala (código, jogadores, anfitrião) e, quando o anfitrião inicia a partida,
- * entrega a `RemoteMatchSession` que passa a tratar as mensagens da partida. Continua ouvindo a sala durante a partida,
- * por isso o saguão já está atualizado quando o jogador volta a ele.
+ * Saguão visto pelo cliente: acompanha a lista de salas públicas e a sala em que a pessoa está (código, jogadores,
+ * anfitrião, visibilidade e regras) e, quando o anfitrião inicia a partida, entrega a `RemoteMatchSession` que passa a
+ * tratar as mensagens da partida. Continua ouvindo a sala durante a partida, por isso o saguão já está atualizado
+ * quando o jogador volta a ele.
  */
 export class LobbyClient {
   private currentState: LobbyState = EMPTY_STATE;
+  private currentRooms: readonly RoomSummaryView[] = [];
   private readonly changeHandlers = new Set<() => void>();
+  private readonly roomListHandlers = new Set<() => void>();
   private readonly errorHandlers = new Set<(message: string) => void>();
   private readonly matchHandlers = new Set<(session: RemoteMatchSession) => void>();
   private readonly staleHandlers = new Set<() => void>();
@@ -53,6 +68,11 @@ export class LobbyClient {
     return this.currentState;
   }
 
+  /** Salas públicas da última consulta (`refreshRooms`). */
+  get rooms(): readonly RoomSummaryView[] {
+    return this.currentRooms;
+  }
+
   get isConnected(): boolean {
     return this.connection.isOpen;
   }
@@ -65,12 +85,28 @@ export class LobbyClient {
     return this.currentState.members.some((member) => member.playerId === this.currentState.playerId && member.isHost);
   }
 
-  createRoom(playerName: string): void {
-    this.connection.send({ type: 'create_room', playerName });
+  /** Pede a lista de salas públicas; a resposta chega em `onRoomList`. */
+  refreshRooms(): void {
+    this.connection.send({ type: 'list_rooms' });
   }
 
-  joinRoom(roomCode: string, playerName: string): void {
-    this.connection.send({ type: 'join_room', roomCode, playerName });
+  /** Entra numa sala pública aberta ou cria uma. */
+  quickMatch(playerName: string): void {
+    this.connection.send({ type: 'quick_match', playerName });
+  }
+
+  createRoom(playerName: string, options: CreateRoomOptions = {}): void {
+    this.connection.send({
+      type: 'create_room',
+      playerName,
+      visibility: options.visibility ?? 'public',
+      ...(options.password ? { password: options.password } : {}),
+      modifiers: { ...NO_ROOM_MODIFIERS, ...options.modifiers },
+    });
+  }
+
+  joinRoom(roomCode: string, playerName: string, password?: string): void {
+    this.connection.send({ type: 'join_room', roomCode, playerName, ...(password ? { password } : {}) });
   }
 
   leaveRoom(): void {
@@ -90,6 +126,11 @@ export class LobbyClient {
   onChange(handler: () => void): () => void {
     this.changeHandlers.add(handler);
     return () => this.changeHandlers.delete(handler);
+  }
+
+  onRoomList(handler: () => void): () => void {
+    this.roomListHandlers.add(handler);
+    return () => this.roomListHandlers.delete(handler);
   }
 
   onError(handler: (message: string) => void): () => void {
@@ -118,7 +159,19 @@ export class LobbyClient {
         this.update({ ...this.currentState, roomCode: message.roomCode, playerId: message.playerId });
         return;
       case 'room_state':
-        this.update({ ...this.currentState, roomCode: message.roomCode, status: message.status, members: message.members });
+        this.update({
+          ...this.currentState,
+          roomCode: message.roomCode,
+          status: message.status,
+          members: message.members,
+          visibility: message.visibility,
+          hasPassword: message.hasPassword,
+          modifiers: message.modifiers,
+        });
+        return;
+      case 'room_list':
+        this.currentRooms = message.rooms;
+        this.roomListHandlers.forEach((handler) => handler());
         return;
       case 'room_closed':
         this.update(EMPTY_STATE);

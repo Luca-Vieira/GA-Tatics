@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server as HttpServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { isGameAction, MAXIMUM_MESSAGE_BYTES, parseClientMessage, type ClientMessage } from '../protocol/clientMessages';
+import { isGameAction, MAXIMUM_MESSAGE_BYTES, parseClientMessage, type ParsedClientMessage } from '../protocol/clientMessages';
 import { PROTOCOL_VERSION, type ServerErrorCode, type ServerMessage } from '../protocol/serverMessages';
 import { RoomRegistry } from '../rooms/RoomRegistry';
 import type { RoomResult } from '../rooms/Room';
@@ -21,6 +21,7 @@ export const LOOPBACK_HOST = '127.0.0.1';
 const WEBSOCKET_POLICY_VIOLATION = 1008;
 const WEBSOCKET_TRY_AGAIN_LATER = 1013;
 const MAXIMUM_RATE_LIMIT_VIOLATIONS = 50;
+const MAXIMUM_PASSWORD_FAILURES = 8;
 
 export interface GameServerOptions {
   readonly host?: string;
@@ -47,6 +48,8 @@ interface Connection {
   readonly socket: WebSocket;
   readonly rateLimiter: RateLimiter;
   rateLimitViolations: number;
+  /** Senhas de sala erradas seguidas: passou do limite, a conexão é fechada (impede adivinhar senhas). */
+  passwordFailures: number;
   isAlive: boolean;
 }
 
@@ -179,6 +182,7 @@ export class GameServer {
       socket,
       rateLimiter: new RateLimiter(this.options.messageBurst, this.options.messagesPerSecond, this.scheduler.nowMs()),
       rateLimitViolations: 0,
+      passwordFailures: 0,
       isAlive: true,
     };
     this.connections.set(connection.id, connection);
@@ -238,13 +242,19 @@ export class GameServer {
     }
   }
 
-  private handle(connectionId: string, message: ClientMessage): void {
+  private handle(connectionId: string, message: ParsedClientMessage): void {
     switch (message.type) {
       case 'create_room':
-        this.report(connectionId, this.registry.createRoom(connectionId, message.playerName));
+        this.report(connectionId, this.registry.createRoom(connectionId, message.playerName, { visibility: message.visibility, password: message.password, modifiers: message.modifiers }));
         return;
       case 'join_room':
-        this.report(connectionId, this.registry.joinRoom(connectionId, message.roomCode, message.playerName));
+        this.report(connectionId, this.registry.joinRoom(connectionId, message.roomCode, message.playerName, message.password));
+        return;
+      case 'list_rooms':
+        this.send(connectionId, { type: 'room_list', rooms: this.registry.listPublicRooms() });
+        return;
+      case 'quick_match':
+        this.report(connectionId, this.registry.quickMatch(connectionId, message.playerName));
         return;
       case 'leave_room':
         this.leaveRoom(connectionId);
@@ -268,8 +278,14 @@ export class GameServer {
   }
 
   private report(connectionId: string, result: RoomResult<unknown>): void {
-    if (!result.ok) {
-      this.sendError(connectionId, result.code);
+    const connection = this.connections.get(connectionId);
+    if (result.ok) {
+      if (connection) connection.passwordFailures = 0;
+      return;
+    }
+    this.sendError(connectionId, result.code);
+    if (connection && result.code === 'wrong_password' && ++connection.passwordFailures > MAXIMUM_PASSWORD_FAILURES) {
+      connection.socket.close(WEBSOCKET_POLICY_VIOLATION, 'too_many_wrong_passwords');
     }
   }
 

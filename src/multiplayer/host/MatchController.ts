@@ -1,4 +1,5 @@
 import type { Game } from '@core/game/Game';
+import { NO_ROOM_MODIFIERS, type RoomModifiers } from '@data/schemas/roomModifiers';
 import { playBotPreparation } from '@core/players/botStrategy';
 import { isAlive } from '@core/players/playerState';
 import type { GameActionMessage } from '../protocol/clientMessages';
@@ -16,6 +17,8 @@ export interface MatchControllerOptions {
   readonly onEnded: () => void;
   /** Versão do conteúdo do jogo com que a partida foi criada (vai para os clientes em `match_started`). */
   readonly contentVersion?: number;
+  /** Regras especiais da sala (vão para os clientes em `match_started`, para a interface calcular os mesmos valores). */
+  readonly modifiers?: RoomModifiers;
 }
 
 /**
@@ -29,6 +32,7 @@ export class MatchController {
   private readonly sendToPlayer: (playerId: string, message: ServerMessage) => void;
   private readonly onEnded: () => void;
   private readonly contentVersion: number;
+  private readonly modifiers: RoomModifiers;
   private readonly autopilotIds = new Set<string>();
   private cancelPendingTimer: (() => void) | null = null;
   private hasEnded = false;
@@ -40,6 +44,7 @@ export class MatchController {
     this.sendToPlayer = options.send;
     this.onEnded = options.onEnded;
     this.contentVersion = options.contentVersion ?? 0;
+    this.modifiers = options.modifiers ?? NO_ROOM_MODIFIERS;
   }
 
   get isRunning(): boolean {
@@ -52,6 +57,7 @@ export class MatchController {
       players: buildPublicPlayers(this.game),
       synergyMapping: this.game.synergyMapping,
       rotationIndex: this.game.rotationIndex,
+      modifiers: this.modifiers,
       contentVersion: this.contentVersion,
     });
     this.beginPreparation();

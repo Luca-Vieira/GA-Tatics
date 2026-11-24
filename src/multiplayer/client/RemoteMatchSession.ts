@@ -29,6 +29,7 @@ const NO_LISTENER: SessionListener = {
 export class RemoteMatchSession implements MatchSession {
   readonly match: RemoteMatchState;
   readonly spriteSources: readonly SpriteSource[];
+  readonly roomRules: readonly string[];
 
   private listener: SessionListener = NO_LISTENER;
   private isStarted = false;
@@ -49,6 +50,7 @@ export class RemoteMatchSession implements MatchSession {
     private readonly nowMs: () => number = Date.now,
   ) {
     this.match = new RemoteMatchState(humanId, started, content);
+    this.roomRules = this.match.roomRules;
     this.spriteSources = content.characters.flatMap((character) =>
       character.sprite
         ? [

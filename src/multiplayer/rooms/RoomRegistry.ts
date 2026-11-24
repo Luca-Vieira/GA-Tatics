@@ -1,5 +1,7 @@
 import type { ServerErrorCode } from '../protocol/serverMessages';
-import { Room, type RoomDependencies, type RoomResult } from './Room';
+import type { RoomSummaryView } from '../protocol/serverMessages';
+import { NO_ROOM_MODIFIERS } from '@data/schemas/roomModifiers';
+import { DEFAULT_ROOM_SETTINGS, Room, type RoomDependencies, type RoomResult, type RoomSettings } from './Room';
 import { generateRoomCode } from './roomCode';
 
 export interface RoomRegistryOptions {
@@ -8,6 +10,9 @@ export interface RoomRegistryOptions {
   /** Sorteia o código da sala; injetável para os testes. */
   readonly createRoomCode?: () => string;
 }
+
+/** Quantas salas a lista pública mostra (as mais antigas primeiro). */
+const MAXIMUM_LISTED_ROOMS = 50;
 
 /** Guarda as salas abertas e sabe em qual delas cada conexão está. */
 export class RoomRegistry {
@@ -28,24 +33,53 @@ export class RoomRegistry {
     return code ? (this.rooms.get(code) ?? null) : null;
   }
 
-  createRoom(connectionId: string, playerName: string): RoomResult<Room> {
+  createRoom(connectionId: string, playerName: string, settings: RoomSettings = DEFAULT_ROOM_SETTINGS): RoomResult<Room> {
     if (this.roomCodeByConnection.has(connectionId)) {
       return failure('already_in_room');
     }
     if (this.rooms.size >= this.options.maximumRooms) {
       return failure('server_full');
     }
-    const room = new Room(this.createUniqueCode(), this.options.dependencies);
+    const room = new Room(this.createUniqueCode(), this.options.dependencies, settings);
     this.rooms.set(room.code, room);
     return this.enter(room, connectionId, playerName);
   }
 
-  joinRoom(connectionId: string, roomCode: string, playerName: string): RoomResult<Room> {
+  joinRoom(connectionId: string, roomCode: string, playerName: string, password?: string): RoomResult<Room> {
     if (this.roomCodeByConnection.has(connectionId)) {
       return failure('already_in_room');
     }
     const room = this.rooms.get(roomCode);
-    return room ? this.enter(room, connectionId, playerName) : failure('room_not_found');
+    if (!room) {
+      return failure('room_not_found');
+    }
+    // A senha é conferida antes de tudo: quem erra não descobre se a sala está cheia ou em partida.
+    if (!room.acceptsPassword(password)) {
+      return failure('wrong_password');
+    }
+    return this.enter(room, connectionId, playerName);
+  }
+
+  /** Salas públicas (as privadas nunca aparecem), da mais antiga para a mais nova. */
+  listPublicRooms(): RoomSummaryView[] {
+    return [...this.rooms.values()]
+      .filter((room) => room.visibility === 'public')
+      .slice(0, MAXIMUM_LISTED_ROOMS)
+      .map((room) => room.summary());
+  }
+
+  /**
+   * Partida rápida: entra numa sala pública aberta e sem senha (de preferência sem regras especiais); se não houver,
+   * cria uma sala pública nova com as regras normais.
+   */
+  quickMatch(connectionId: string, playerName: string): RoomResult<Room> {
+    if (this.roomCodeByConnection.has(connectionId)) {
+      return failure('already_in_room');
+    }
+    const candidates = [...this.rooms.values()].filter((room) => room.visibility === 'public' && !room.hasPassword && room.isOpenForPlayers);
+    const hasNormalRules = (room: Room) => JSON.stringify(room.modifiers) === JSON.stringify(NO_ROOM_MODIFIERS);
+    const target = candidates.find(hasNormalRules) ?? candidates[0];
+    return target ? this.enter(target, connectionId, playerName) : this.createRoom(connectionId, playerName);
   }
 
   leave(connectionId: string): void {

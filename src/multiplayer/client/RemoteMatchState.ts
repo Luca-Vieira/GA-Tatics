@@ -1,6 +1,7 @@
 import type { CharacterDefinition } from '@data/schemas/character';
 import type { GameContent } from '@data/schemas/content';
 import type { MatchView } from '@core/game/MatchSession';
+import { applyRoomModifiers, describeRoomModifiers } from '@core/game/roomModifiers';
 import { boardUnitsOf, type OwnedUnit, type PlayerState } from '@core/players/playerState';
 import { summarizeSynergies } from '@core/synergies/synergies';
 import { buildTowerCharacter } from '@core/tower/tower';
@@ -20,6 +21,8 @@ export class RemoteMatchState implements MatchView {
   readonly config: GameContent['config'];
   readonly synergies: GameContent['synergies'];
   readonly synergyRotation: GameContent['rotation'];
+  /** Regras especiais da sala em texto curto (vazio = regras normais). */
+  readonly roomRules: readonly string[];
   readonly synergyMapping: Readonly<Record<string, string>>;
   readonly rotationIndex: number;
 
@@ -36,7 +39,9 @@ export class RemoteMatchState implements MatchView {
     started: MatchStartedMessage,
     content: GameContent,
   ) {
-    this.config = content.config;
+    // A configuração já vem com as vidas, os tempos e a renda da sala, igual à que o servidor usa.
+    this.config = applyRoomModifiers(content.config, started.modifiers);
+    this.roomRules = describeRoomModifiers(started.modifiers);
     this.synergies = content.synergies;
     this.synergyRotation = content.rotation;
     this.synergyMapping = started.synergyMapping;
