@@ -134,19 +134,6 @@ Princípios que o projeto segue:
 
 ---
 
-## ☁️ Hospedagem (em andamento)
-
-O plano é publicar a **página do jogo e o `/admin`** como site estático (GitHub Pages e/ou Firebase Hosting). O **servidor de partidas é um processo Node com WebSocket** e precisa de outro lugar para rodar (seu PC com túnel, uma VM gratuita ou um serviço pago). Falta fazer:
-
-- [ ] Configurar o `base` do Vite para o endereço do GitHub Pages
-- [ ] Liberar a origem da página publicada no servidor (hoje só aceita páginas locais ou de rede privada)
-- [ ] Servir o servidor por HTTPS/WSS (o jogo e o admin usam o campo "Endereço do servidor")
-- [ ] Guardar `server-data/` em disco que não seja apagado a cada reinício
-
-Detalhes e alternativas estão em [`o-que-falta.md`](o-que-falta.md).
-
----
-
 ## 📚 Documentação
 
 | Arquivo | Conteúdo |
@@ -154,13 +141,14 @@ Detalhes e alternativas estão em [`o-que-falta.md`](o-que-falta.md).
 | [`merge-do-escritorio-gdd(1).md`](merge-do-escritorio-gdd(1).md) | Game Design Document original |
 | [`decisoes-de-design.md`](decisoes-de-design.md) | Decisões tomadas durante o desenvolvimento (regras, balanceamento, servidor, admin, hub) |
 | [`o-que-falta.md`](o-que-falta.md) | Estado atual, pendências e armadilhas conhecidas |
+| [`docs/hospedagem-do-servidor.md`](docs/hospedagem-do-servidor.md) | Como publicar o jogo numa VPS |
 
 ---
 
 ## 🗺️ Status
 
 Funcionando: combate, partida completa, loja com congelamento, fusão, sinergias com rotação, torre, regras de sala, multiplayer com hub, painel de administração e sprites.
-Em aberto: reconexão no meio da partida, HTTPS e hospedagem pública, arte final e sons, tela de espectador.
+Em aberto: reconexão no meio da partida, arte final e sons, tela de espectador.
 
 <div align="center">
 

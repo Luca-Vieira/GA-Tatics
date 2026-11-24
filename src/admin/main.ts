@@ -1,6 +1,7 @@
 import { characterSchema } from '@data/schemas/character';
 import type { GameContent } from '@data/schemas/content';
 import { synergySchema } from '@data/schemas/synergy';
+import { defaultHttpAddress } from '@shared/utils/serverAddress';
 import { AdminClient, AdminRequestError } from './adminClient';
 import {
   addCharacterFrom,
@@ -90,7 +91,7 @@ interface State {
 
 const state: State = {
   client: null,
-  serverUrl: `http://${window.location.hostname || 'localhost'}:8787`,
+  serverUrl: defaultHttpAddress({ isDevelopment: import.meta.env.DEV, page: window.location, configuredUrl: import.meta.env.VITE_SERVER_URL }),
   published: null,
   working: null,
   version: 0,

@@ -3,5 +3,7 @@ dist
 *.local
 .env
 .env.*
+!.env.example
 server-data
 .claude/settings.local.json
+docker-compose.override.yml

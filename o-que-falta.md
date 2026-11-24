@@ -81,8 +81,8 @@ O que ficou de fora:
 - **Modo local:** a partida contra bots no navegador usa o conteúdo empacotado com o jogo, não o do servidor.
 - **TLS:** a senha do admin trafega sem criptografia; use só em rede de confiança ou atrás de um proxy HTTPS.
 - **Sprites:** o painel envia PNGs e o jogo em rede os usa; a partida local contra bots, as invocações e a torre ainda usam o desenho provisório. Não há animação própria (só os movimentos procedurais), nem imagem para sinergias, e o `server-data/sprites` cresce a cada envio (versões antigas não são apagadas). A distribuição do cliente do jogo (hospedagem) é a Pendência abaixo.
-- **Hospedagem pública:** hoje o servidor só aceita conexões de páginas servidas de máquina local ou rede privada (`originPolicy.ts`), e não tem TLS. Para jogar pela internet é preciso (1) liberar a origem da página (variável de ambiente, p.ex. `ALLOWED_ORIGINS`), (2) servir o servidor por HTTPS/WSS (o proxy ou túnel faz isso) e (3) guardar `server-data/` em disco que não seja apagado (serviços gratuitos como o Render apagam o disco a cada reinício). A página do jogo e o `/admin` podem ir para hospedagem estática (build do Vite). No campo "Endereço do servidor" usa-se `wss://...`.
-- **Painel em produção:** o `/admin` é servido pelo Vite (dev, `preview` ou build estático). O servidor do jogo só expõe a API.
+- **Publicação na VPS (Seção 20 do `decisoes-de-design.md`, passo a passo em `docs/hospedagem-do-servidor.md`):** os arquivos estão prontos. Conferido: build de produção atrás de um proxy local que imita as rotas do Caddy (jogo, `/admin`, envio de sprite e publicação) e `docker compose config`. **Nunca foi executado:** `docker build` das duas imagens, o `Caddyfile` com o Caddy de verdade e as configurações de proxy do guia (nginx, Caddy, Apache, contêiner). A primeira subida na VPS é o primeiro teste real. A VPS já tem outro projeto: falta saber quem usa as portas 80 e 443 (diagnóstico do guia).
+- **Painel em produção:** o `/admin` é um arquivo estático (servido pelo Vite no desenvolvimento e pelo Caddy na VPS). O servidor do jogo só expõe a API.
 
 ## 6. Etapa 6 — polimento e balanceamento
 

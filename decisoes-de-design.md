@@ -250,3 +250,21 @@ Pedido do dono: ver as salas abertas, ter partida rápida, criar sala privada ou
 - **Protocolo (versão 3):** `create_room` ganha `visibility` (padrão `public`), `password` e `modifiers`; `join_room` ganha `password`; novas mensagens `list_rooms` → `room_list` e `quick_match`; `room_state` e `match_started` trazem visibilidade, cadeado e regras; novo erro `wrong_password`. O tipo `ClientMessage` passou a ser o que o cliente envia e `ParsedClientMessage` o que o servidor entende depois de validar (com os padrões preenchidos).
 - **Pendências de balanceamento:** os tetos são palpites. Combinar "+50% de status" com muito tempo de combate muda a duração dos combates (a faixa de 15 a 25 s do GDD vale só para regras normais).
 
+## 19. Servidor pronto para publicar
+
+- **Configuração por ambiente** (`src/multiplayer/host/serverConfig.ts`): `HOST`, `PORT`, `DATA_DIR`, `ALLOWED_ORIGINS`, `TRUST_PROXY`, `ADMIN_USERNAME` e `ADMIN_PASSWORD`; os argumentos `--lan` e `--port` continuam valendo sobre o ambiente. Valor inválido impede a subida, com mensagem explicando.
+- **Origens liberadas:** além das páginas locais e de rede privada, só os endereços **exatos** de `ALLOWED_ORIGINS` (sem curinga e sem caminho) usam o WebSocket e a API do painel.
+- **Proxy:** o servidor não faz HTTPS; um proxy ou túnel faz. Com `TRUST_PROXY=1`, o limite de tentativas de login usa o **último** item de `X-Forwarded-For` (o que o proxy acrescentou).
+- **Saúde:** `GET /health` responde `{"status":"ok"}`, sem revelar salas nem jogadores.
+- **Contêiner:** `Dockerfile` (Node 22 Alpine, só dependências de produção, usuário sem privilégios, volume `/data`, um processo para o sinal de parada chegar ao servidor), `docker-compose.yml` (ver Seção 20) e `.env.example`. Por isso o `tsx` passou a ser dependência de produção.
+- **Guia:** `docs/hospedagem-do-servidor.md` (reescrito para a VPS na Seção 20).
+
+## 20. Publicação na VPS do dono
+
+- **Decisão do dono:** publicar na própria VPS. (Antes disso foi considerado usar o Firebase como backend; foi descartado.)
+- **VPS compartilhada** (já roda outro projeto): o jogo **não usa as portas 80 e 443**. O `docker-compose.yml` tem nome próprio (`merge-do-escritorio`), publica só o contêiner `web` em `127.0.0.1:8090` (`WEB_PORT` troca a porta) e limita a memória (384 MB no servidor, 128 MB no web). O proxy que já existe na VPS cuida do HTTPS e encaminha um **subdomínio** para essa porta (subpasta não funciona).
+- **Mesmo endereço para tudo:** o `web` (Caddy, só HTTP; `deploy/Caddyfile`) serve a página e o `/admin` e encaminha `/ws`, `/api/*`, `/sprites/*` e `/health` ao `servidor`, que não publica porta. Com dois proxies em série, o Caddy lê o `X-Forwarded-For` de proxies da rede interna (`trusted_proxies_strict`) e entrega ao servidor só o IP de quem está do outro lado.
+- **Endereço automático no cliente** (`src/shared/utils/serverAddress.ts`): em desenvolvimento, `ws://<máquina>:8787`; no build publicado, o mesmo endereço da página com `/ws` (`wss` quando a página é `https`); `VITE_SERVER_URL` no build sobrepõe, para publicar a página em outro lugar.
+- **Padrões do compose:** `TRUST_PROXY=1`; `ALLOWED_ORIGINS` vazio libera `https://<SITE_DOMAIN>`.
+- **Guia:** `docs/hospedagem-do-servidor.md`, com diagnóstico só de leitura, cuidados para não afetar o outro projeto, configuração para nginx, Caddy, Apache e proxy em contêiner, e teste sem subdomínio.
+

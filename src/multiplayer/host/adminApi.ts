@@ -14,6 +14,10 @@ export interface AdminApiOptions {
   readonly store: ContentStore;
   readonly sprites: SpriteStore;
   readonly log: (line: string) => void;
+  /** Endereços de páginas publicadas que podem usar o painel (além das locais e de rede privada). */
+  readonly allowedOrigins?: readonly string[];
+  /** Há um proxy na frente: o IP de quem tenta entrar vem de `X-Forwarded-For`. */
+  readonly trustProxy?: boolean;
 }
 
 class HttpError extends Error {
@@ -58,7 +62,7 @@ export class AdminApi {
 
   private async respond(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
     const origin = request.headers.origin;
-    if (origin !== undefined && !isOriginAllowed(origin)) {
+    if (origin !== undefined && !isOriginAllowed(origin, this.options.allowedOrigins)) {
       throw new HttpError(403, 'origin_not_allowed');
     }
     if (request.method === 'OPTIONS') {
@@ -106,7 +110,7 @@ export class AdminApi {
     const body = await this.readJsonBody(request, LOGIN_BODY_LIMIT_BYTES);
     const username = typeof body.username === 'string' ? body.username : '';
     const password = typeof body.password === 'string' ? body.password : '';
-    const result = auth.login(username, password, request.socket.remoteAddress ?? 'desconhecido');
+    const result = auth.login(username, password, this.clientAddressOf(request));
     if (!result.ok) {
       if (result.reason === 'locked') {
         throw new HttpError(429, 'too_many_attempts');
@@ -159,6 +163,21 @@ export class AdminApi {
 
   // --- Apoio --------------------------------------------------------------------------------------
 
+  /**
+   * De onde vem a tentativa de login, para limitar por endereço. Atrás de um proxy confiável vale o **último** item de
+   * `X-Forwarded-For` (o que o próprio proxy acrescentou; os anteriores podem ser inventados por quem chama).
+   */
+  private clientAddressOf(request: IncomingMessage): string {
+    if (this.options.trustProxy) {
+      const header = request.headers['x-forwarded-for'];
+      const forwarded = (Array.isArray(header) ? header.join(',') : (header ?? '')).split(',').pop()?.trim();
+      if (forwarded) {
+        return forwarded;
+      }
+    }
+    return request.socket.remoteAddress ?? 'desconhecido';
+  }
+
   private tokenOf(request: IncomingMessage): string | undefined {
     const header = request.headers.authorization;
     return header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
@@ -207,7 +226,7 @@ export class AdminApi {
       'X-Content-Type-Options': 'nosniff',
     };
     const origin = request.headers.origin;
-    if (origin !== undefined && isOriginAllowed(origin)) {
+    if (origin !== undefined && isOriginAllowed(origin, this.options.allowedOrigins)) {
       headers['Access-Control-Allow-Origin'] = origin;
       headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
       headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS';

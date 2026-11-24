@@ -39,6 +39,10 @@ export interface GameServerOptions {
   readonly contentStore?: ContentStore;
   /** Onde os sprites enviados pelo painel ficam guardados. Sem ele, ficam só em memória. */
   readonly spriteStore?: SpriteStore;
+  /** Endereços de páginas (além das locais e de rede privada) que podem conectar ao jogo e usar o painel. */
+  readonly allowedOrigins?: readonly string[];
+  /** Há um proxy na frente: o IP de quem conecta vem de `X-Forwarded-For` (usado no limite de login do painel). */
+  readonly trustProxy?: boolean;
   /** Usuário e senha do painel de administração. Sem eles (ou com senha curta) o painel fica desligado. */
   readonly adminCredentials?: AdminCredentials | null;
 }
@@ -58,7 +62,8 @@ interface Connection {
  * frequência, e só o `Game` no servidor decide o que acontece. Não lê arquivos nem executa nada vindo da rede.
  */
 export class GameServer {
-  private readonly options: Required<Omit<GameServerOptions, 'scheduler' | 'log' | 'contentStore' | 'spriteStore' | 'adminCredentials'>>;
+  private readonly options: Required<Omit<GameServerOptions, 'scheduler' | 'log' | 'contentStore' | 'spriteStore' | 'adminCredentials' | 'allowedOrigins' | 'trustProxy'>>;
+  private readonly allowedOrigins: readonly string[];
   private readonly scheduler: Scheduler;
   private readonly log: (line: string) => void;
   private readonly connections = new Map<string, Connection>();
@@ -83,6 +88,7 @@ export class GameServer {
     };
     this.scheduler = options.scheduler ?? realScheduler;
     this.log = options.log ?? (() => undefined);
+    this.allowedOrigins = options.allowedOrigins ?? [];
     this.contentStore = options.contentStore ?? new ContentStore();
     this.spriteStore = options.spriteStore ?? new SpriteStore();
     const credentials = options.adminCredentials ?? null;
@@ -94,7 +100,14 @@ export class GameServer {
     if (adminAuth) {
       this.log('Painel de administração ligado (API em /api/admin/).');
     }
-    this.adminApi = new AdminApi({ auth: adminAuth, store: this.contentStore, sprites: this.spriteStore, log: this.log });
+    this.adminApi = new AdminApi({
+      auth: adminAuth,
+      store: this.contentStore,
+      sprites: this.spriteStore,
+      log: this.log,
+      allowedOrigins: this.allowedOrigins,
+      trustProxy: options.trustProxy ?? false,
+    });
     this.registry = new RoomRegistry({
       maximumRooms: this.options.maximumRooms,
       dependencies: {
@@ -118,7 +131,7 @@ export class GameServer {
     return new Promise((resolve, reject) => {
       // O mesmo endereço atende o jogo (WebSocket) e a API do painel de administração (HTTP).
       const httpServer = createServer((request, response) => {
-        if (this.adminApi.handle(request, response) || this.serveSprite(request.method, request.url, response)) {
+        if (this.adminApi.handle(request, response) || this.serveSprite(request.method, request.url, response) || serveHealthCheck(request.method, request.url, response)) {
           return;
         }
         response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -168,7 +181,7 @@ export class GameServer {
   // --- Conexões -----------------------------------------------------------------------------------
 
   private acceptConnection(socket: WebSocket, origin: string | undefined): void {
-    if (!isOriginAllowed(origin)) {
+    if (!isOriginAllowed(origin, this.allowedOrigins)) {
       this.log(`Conexão recusada: origem não permitida (${origin}).`);
       socket.close(WEBSOCKET_POLICY_VIOLATION, 'origin_not_allowed');
       return;
@@ -326,6 +339,17 @@ export class GameServer {
       socket.send(JSON.stringify(message));
     }
   }
+}
+
+/** Resposta simples para o provedor (ou um monitor) saber que o servidor está de pé. Não revela nada sobre salas. */
+function serveHealthCheck(method: string | undefined, url: string | undefined, response: ServerResponse): boolean {
+  const path = (url ?? '').split('?')[0];
+  if (path !== '/health' || (method !== 'GET' && method !== 'HEAD')) {
+    return false;
+  }
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  response.end(method === 'HEAD' ? undefined : '{"status":"ok"}');
+  return true;
 }
 
 function notInRoom(): RoomResult<never> {

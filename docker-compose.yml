@@ -1,0 +1,39 @@
+# O jogo numa VPS que já tem outros projetos: ele NÃO usa as portas 80 e 443. Abre uma única porta, só dentro da
+# própria VPS (127.0.0.1:8090), e o proxy que já cuida do HTTPS encaminha um subdomínio para ela.
+# 1. Copie .env.example para .env e preencha (o .env fica fora do controle de versão).
+# 2. docker compose up -d --build
+# Passo a passo completo em docs/hospedagem-do-servidor.md.
+
+# Nome fixo: contêineres, rede e volumes ficam com prefixo próprio, sem se misturar com os de outros projetos.
+name: merge-do-escritorio
+
+services:
+  servidor:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Há um proxy na frente: o IP de quem conecta vem dele.
+      TRUST_PROXY: '1'
+      # Sem ALLOWED_ORIGINS no .env, libera a própria página (https://<SITE_DOMAIN>).
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${SITE_DOMAIN:?Defina SITE_DOMAIN no arquivo .env}}
+    # Nenhuma porta é publicada: só o contêiner "web" fala com ele, pela rede interna.
+    mem_limit: 384m
+    volumes:
+      - dados:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    ports:
+      # Mude WEB_PORT no .env se a 8090 já estiver em uso. Deixe WEB_BIND em 127.0.0.1: portas publicadas pelo Docker
+      # ignoram as regras do ufw.
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8090}:80'
+    mem_limit: 128m
+    depends_on:
+      - servidor
+
+volumes:
+  dados:

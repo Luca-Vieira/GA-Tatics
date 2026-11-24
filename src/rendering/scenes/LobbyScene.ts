@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { LocalMatchSession } from '@core/game/LocalMatchSession';
 import { describeRoomModifiers } from '@core/game/roomModifiers';
 import { NO_ROOM_MODIFIERS, ROOM_MODIFIER_CHOICES, type RoomModifiers } from '@data/schemas/roomModifiers';
+import { defaultSocketAddress } from '@shared/utils/serverAddress';
 import { LobbyClient } from '@multiplayer/client/LobbyClient';
 import type { RemoteMatchSession } from '@multiplayer/client/RemoteMatchSession';
 import { ConnectionError, ServerConnection } from '@multiplayer/client/ServerConnection';
@@ -17,7 +18,6 @@ export interface LobbySceneData {
 
 type HubView = 'hub' | 'create';
 
-const DEFAULT_SERVER_PORT = 8787;
 const SCREEN_CENTER = { x: 640, y: 360 };
 /** De quanto em quanto tempo a lista de salas é pedida de novo enquanto o hub está aberto. */
 const ROOM_LIST_REFRESH_MS = 3000;
@@ -51,8 +51,7 @@ const MODIFIER_FIELDS: readonly { readonly key: keyof RoomModifiers; readonly la
 ];
 
 function defaultServerAddress(): string {
-  const host = window.location.hostname || 'localhost';
-  return `ws://${host}:${DEFAULT_SERVER_PORT}`;
+  return defaultSocketAddress({ isDevelopment: import.meta.env.DEV, page: window.location, configuredUrl: import.meta.env.VITE_SERVER_URL });
 }
 
 /** Cria um elemento com estilo e texto (o texto nunca é lido como HTML, então nomes de jogadores não injetam nada). */
