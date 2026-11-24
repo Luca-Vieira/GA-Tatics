@@ -1,0 +1,23 @@
+{
+  "id": "wender",
+  "name": "Wender",
+  "archetype": "Autômato",
+  "description": "Especialista resistente. Cobre a falta dos colegas.",
+  "category": "bruiser",
+  "rarity": "common",
+  "stats": { "health": 8, "damage": 6, "attackSpeed": 4, "range": 2, "mobility": 2 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "plug_the_gap",
+    "name": "Tapar buraco",
+    "description": "Sobrecarga: quando um aliado cai, recebe um aumento temporário de velocidade e dano para compensar a ausência.",
+    "activation": { "type": "cooldown", "requires": "ally_fallen" },
+    "cooldownSeconds": 12,
+    "cast": { "target": "self", "range": 0 },
+    "effects": [
+      { "type": "status", "targets": "self", "status": "speed_boost", "value": 0.5, "durationSeconds": 5 },
+      { "type": "status", "targets": "self", "status": "damage_boost", "value": 0.4, "durationSeconds": 5 }
+    ],
+    "visual": { "kind": "aura", "color": "#facc15" }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "derson",
+  "name": "Derson",
+  "archetype": "Protagonista",
+  "description": "Lutador corpo a corpo que gosta de aparecer. Cria um clone que não machuca ninguém, mas rouba a atenção dos inimigos.",
+  "category": "melee",
+  "rarity": "rare",
+  "stats": { "health": 5, "damage": 6, "attackSpeed": 4, "range": 1, "mobility": 3 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "summon_protagonist",
+    "name": "Invocar o protagonista",
+    "description": "Cria um clone que não dá dano, mas atrai os inimigos próximos: eles param tudo para atacá-lo enquanto ele durar.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 14,
+    "cast": { "target": "nearest_enemy", "range": 4 },
+    "effects": [
+      { "type": "summon_decoy", "name": "Protagonista", "health": 3, "lifetimeSeconds": 4, "tauntRadius": 3, "placementRange": 2 }
+    ],
+    "visual": { "kind": "aura", "color": "#facc15" }
+  }
+}

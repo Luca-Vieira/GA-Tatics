@@ -1,0 +1,22 @@
+{
+  "id": "helder",
+  "name": "Helder",
+  "archetype": "Curandeiro",
+  "description": "Suporte. A presença dele recupera quem está por perto.",
+  "category": "support",
+  "rarity": "rare",
+  "stats": { "health": 5, "damage": 3, "attackSpeed": 4, "range": 4, "mobility": 4 },
+  "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 3 },
+  "ability": {
+    "id": "majestic_presence",
+    "name": "Presença majestosa",
+    "description": "Cura: a presença de Helder recupera a vida dos aliados próximos, priorizando quem estiver mais ferido.",
+    "activation": { "type": "cooldown", "requires": "ally_wounded" },
+    "cooldownSeconds": 5,
+    "cast": { "target": "self", "range": 0, "areaRadius": 3 },
+    "effects": [
+      { "type": "heal", "targets": "allies_in_area", "fractionOfMaxHealth": 0.22, "maxTargets": 2, "prioritize": "lowest_health_ratio" }
+    ],
+    "visual": { "kind": "aura", "color": "#4ade80" }
+  }
+}

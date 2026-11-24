@@ -1,0 +1,31 @@
+{
+  "id": "moco",
+  "name": "Moço",
+  "archetype": "Apostador",
+  "description": "Dano imprevisível: cada ataque é uma aposta.",
+  "category": "gambler",
+  "rarity": "special",
+  "stats": { "health": 6, "damage": 5, "attackSpeed": 5, "range": 3, "mobility": 5 },
+  "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 2 },
+  "ability": {
+    "id": "roulette",
+    "name": "Estagiário",
+    "description": "Roleta: cada ataque tem resultado aleatório. Pode causar dano excelente, dano medíocre ou simplesmente errar.",
+    "activation": { "type": "passive" },
+    "cooldownSeconds": 0,
+    "effects": [
+      {
+        "type": "registered",
+        "behavior": {
+          "id": "random_attack",
+          "outcomes": [
+            { "chance": 0.05, "minDamage": 0, "maxDamage": 0 },
+            { "chance": 0.35, "minDamage": 2, "maxDamage": 4 },
+            { "chance": 0.6, "minDamage": 8, "maxDamage": 10 }
+          ]
+        }
+      }
+    ],
+    "visual": { "kind": "none", "color": "#fb7185" }
+  }
+}

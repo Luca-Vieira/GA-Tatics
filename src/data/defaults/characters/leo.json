@@ -1,0 +1,23 @@
+{
+  "id": "leo",
+  "name": "Leo",
+  "archetype": "Assassino",
+  "description": "Dano explosivo. Persegue quem está mais frágil.",
+  "category": "assassin",
+  "rarity": "rare",
+  "stats": { "health": 3, "damage": 8, "attackSpeed": 9, "range": 1, "mobility": 10 },
+  "behavior": { "movement": "chase", "targetPriority": "lowest_health", "preferredDistance": 1 },
+  "ability": {
+    "id": "ambush",
+    "name": "Errinho na sexta à tarde",
+    "description": "Emboscada: o primeiro ataque contra cada inimigo causa dano crítico. O inimigo fica confuso e pode errar o próximo ataque.",
+    "activation": { "type": "first_hit_on_target" },
+    "cooldownSeconds": 0,
+    "cast": { "target": "current_target", "range": 1 },
+    "effects": [
+      { "type": "damage", "targets": "center_unit", "multiplier": 1.5 },
+      { "type": "status", "targets": "center_unit", "status": "confuse", "value": 0.6, "charges": 1, "durationSeconds": 4 }
+    ],
+    "visual": { "kind": "burst", "color": "#f59e0b" }
+  }
+}

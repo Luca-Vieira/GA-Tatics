@@ -1,0 +1,23 @@
+{
+  "id": "bixo",
+  "name": "Bixo",
+  "archetype": "Guardião",
+  "description": "Tanque que segura a linha de frente. Quando apanha demais, senta para descansar.",
+  "category": "tank",
+  "rarity": "common",
+  "stats": { "health": 10, "damage": 4, "attackSpeed": 3, "range": 1, "mobility": 3 },
+  "behavior": { "movement": "frontline", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "defensive_stance",
+    "name": "Descansar, né",
+    "description": "Postura Defensiva: ao ficar com metade da vida, Bixo para de atacar, senta e reduz drasticamente o dano recebido por alguns segundos.",
+    "activation": { "type": "health_threshold", "belowFraction": 0.5 },
+    "cooldownSeconds": 20,
+    "cast": { "target": "self", "range": 0 },
+    "effects": [
+      { "type": "status", "targets": "self", "status": "damage_reduction", "value": 0.7, "durationSeconds": 4 },
+      { "type": "status", "targets": "self", "status": "resting", "durationSeconds": 4 }
+    ],
+    "visual": { "kind": "aura", "color": "#9ca3af" }
+  }
+}

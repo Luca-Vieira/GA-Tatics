@@ -1,0 +1,22 @@
+{
+  "id": "marquinhos",
+  "name": "Marquinhos",
+  "archetype": "Vampiro",
+  "description": "Sustentação. Vive da vida dos outros.",
+  "category": "sustain",
+  "rarity": "common",
+  "stats": { "health": 6, "damage": 6, "attackSpeed": 5, "range": 1, "mobility": 6 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "drain_life",
+    "name": "Olhar penetrante",
+    "description": "Drenar Vida: fixa o olhar em um inimigo, drenando sua vida gradualmente e recuperando a própria.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 8,
+    "cast": { "target": "current_target", "range": 1 },
+    "effects": [
+      { "type": "status", "targets": "center_unit", "status": "drain", "value": 0.7, "tickSeconds": 0.5, "durationSeconds": 3, "healRatio": 1 }
+    ],
+    "visual": { "kind": "aura", "color": "#dc2626" }
+  }
+}

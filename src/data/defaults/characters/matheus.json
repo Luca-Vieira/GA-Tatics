@@ -1,0 +1,23 @@
+{
+  "id": "matheus",
+  "name": "Matheus",
+  "archetype": "Envenenador",
+  "description": "Dano em área e enfraquecimento. Mira onde há mais inimigos juntos.",
+  "category": "caster",
+  "rarity": "common",
+  "stats": { "health": 5, "damage": 5, "attackSpeed": 4, "range": 4, "mobility": 4 },
+  "behavior": { "movement": "kite", "targetPriority": "cluster", "preferredDistance": 3 },
+  "ability": {
+    "id": "area_filth",
+    "name": "Sujeira em área",
+    "description": "Espalha sujeira em uma região, enfraquecendo todos os inimigos atingidos. O inimigo no centro recebe também envenenamento.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 7,
+    "cast": { "target": "enemy_cluster", "range": 4, "areaRadius": 1 },
+    "effects": [
+      { "type": "status", "targets": "enemies_in_area", "status": "weaken", "value": 0.3, "durationSeconds": 5 },
+      { "type": "status", "targets": "center_unit", "status": "poison", "value": 0.5, "tickSeconds": 0.5, "durationSeconds": 5 }
+    ],
+    "visual": { "kind": "burst", "color": "#84cc16" }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "joao_lucas",
+  "name": "João Lucas",
+  "archetype": "Franco-atirador",
+  "description": "Dano de precisão. Fica longe e mira no mais ferido.",
+  "category": "sniper",
+  "rarity": "special",
+  "stats": { "health": 3, "damage": 6, "attackSpeed": 2, "range": 6, "mobility": 2 },
+  "behavior": { "movement": "kite", "targetPriority": "lowest_health", "preferredDistance": 5 },
+  "ability": {
+    "id": "l_shot",
+    "name": "Faz o L poderoso",
+    "description": "Tiro Perfurante: dispara um projétil em formato de L, que muda de direção para atingir um segundo inimigo.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 6,
+    "cast": { "target": "current_target", "range": 6 },
+    "effects": [
+      {
+        "type": "registered",
+        "behavior": { "id": "l_shaped_projectile", "primaryMultiplier": 2.5, "secondaryMultiplier": 2, "redirectRange": 3 }
+      }
+    ],
+    "visual": { "kind": "none", "color": "#38bdf8" }
+  }
+}

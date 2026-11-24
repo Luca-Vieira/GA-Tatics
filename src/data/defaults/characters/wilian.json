@@ -1,0 +1,20 @@
+{
+  "id": "wilian",
+  "name": "Wilian",
+  "archetype": "Congelador",
+  "description": "Controle. Coloca inimigos para dormir.",
+  "category": "control",
+  "rarity": "common",
+  "stats": { "health": 6, "damage": 6, "attackSpeed": 3, "range": 4, "mobility": 3 },
+  "behavior": { "movement": "kite", "targetPriority": "cluster", "preferredDistance": 3 },
+  "ability": {
+    "id": "sleep_on_the_job",
+    "name": "Dormir no serviço",
+    "description": "Congelamento: escolhe um inimigo e o coloca para dormir, impedindo-o de atacar ou se movimentar temporariamente.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 5,
+    "cast": { "target": "current_target", "range": 4 },
+    "effects": [{ "type": "status", "targets": "center_unit", "status": "sleep", "durationSeconds": 3 }],
+    "visual": { "kind": "burst", "color": "#67e8f9" }
+  }
+}
