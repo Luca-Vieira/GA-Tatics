@@ -23,6 +23,17 @@ export interface TrapRequest {
   readonly summon: { readonly name: string; readonly stats: BaseStats; readonly count: number; readonly lifetimeMs: number };
 }
 
+export interface SummonSpawnRequest {
+  readonly ownerId: string;
+  readonly side: BoardSide;
+  /** As criaturas ocupam as casas livres mais próximas daqui; empates vão para o lado de `towards`. */
+  readonly anchor: Hex;
+  readonly towards: Hex;
+  /** Multiplicador de estrela de quem invocou: as criaturas escalam junto. */
+  readonly starMultiplier: number;
+  readonly summon: { readonly name: string; readonly stats: BaseStats; readonly count: number; readonly lifetimeMs: number };
+}
+
 export interface DecoyRequest {
   readonly ownerId: string;
   readonly side: BoardSide;
@@ -47,6 +58,8 @@ export interface CombatWorld {
   heal(source: CombatUnit | null, target: CombatUnit, amount: number): number;
   applyStatus(source: CombatUnit, target: CombatUnit, spec: StatusSpec): void;
   placeTrap(request: TrapRequest): void;
+  /** Coloca as criaturas invocadas no tabuleiro (menos, se faltar casa livre). */
+  spawnSummons(request: SummonSpawnRequest): void;
   /** Cria um clone provocador na casa indicada (que deve estar livre). */
   spawnDecoy(request: DecoyRequest): void;
   isCellFree(cell: Hex): boolean;

@@ -2,7 +2,10 @@ import { characterSchema } from '@data/schemas/character';
 import type { GameContent } from '@data/schemas/content';
 import { synergySchema } from '@data/schemas/synergy';
 import { defaultHttpAddress } from '@shared/utils/serverAddress';
+import { renderActivitiesView } from './activitiesView';
 import { AdminClient, AdminRequestError } from './adminClient';
+import { createAttackPreview, type AttackPreview } from './attackPreview';
+import { actionButton, el, field } from './dom';
 import {
   addCharacterFrom,
   addSynergyFrom,
@@ -22,6 +25,7 @@ import {
 } from './editorState';
 import {
   ABILITY_FIELDS,
+  ATTACK_FIELDS,
   ACTIVATION_FIELDS,
   ACTIVATION_TYPE_OPTIONS,
   BASIC_FIELDS,
@@ -48,25 +52,31 @@ import {
   type SynergyEffectType,
 } from './fieldSpecs';
 import { buildReferenceGuide } from './referenceGuide';
+import { DEFAULT_SPRITE_ADJUSTMENT } from './spriteAdjust';
 import { checkSpriteBytes } from './spriteFile';
+import { confirmLeavingAdjustment, discardPendingAdjustment, hasPendingAdjustment, renderSpritesView, selectSpriteTarget, type SpritesViewContext } from './spritesView';
 
-type Tab = 'characters' | TextSection;
+type Tab = 'characters' | TextSection | 'sprites' | 'activities';
 type Draft = Record<string, unknown>;
 
 const TAB_LABELS: Readonly<Record<Tab, string>> = {
   characters: 'Personagens',
+  sprites: 'Sprites e ícones',
   synergies: 'Sinergias',
   config: 'Configuração',
   rotation: 'Rotação e distribuição',
+  activities: 'Em andamento',
 };
+
+function isTextSection(tab: Tab): tab is TextSection {
+  return tab === 'synergies' || tab === 'config' || tab === 'rotation';
+}
 
 const SECTION_HELP: Readonly<Record<TextSection, string>> = {
   synergies: 'Exatamente 3 sinergias. Mude textos, cores e bônus dos níveis; os ids precisam bater com a distribuição.',
-  config: 'Economia, loja, rodadas e a torre (custo, vida, renda por rodada, chance de aparecer e máximo por jogador).',
+  config: 'Economia, loja (offerSize = quantas ofertas), rodadas (benchSize = vagas da reserva) e a torre (custo, vida, renda por rodada, chance de aparecer em cada vaga, máximo por jogador e compensationOnLoss = moedas pagas uma vez a quem perde uma torre).',
   rotation: 'Regra da rotação (intervalo, âncora, "override" para fixar uma distribuição) e a distribuição de lançamento (personagem → sinergia). Cada sinergia precisa de pelo menos 4 personagens ativos (não precisam ser quantidades iguais).',
 };
-
-const DEFAULT_SPRITE = { scale: 1, offsetX: 0, offsetY: 0, anchorX: 0.5, anchorY: 1 };
 
 interface State {
   client: AdminClient | null;
@@ -114,42 +124,18 @@ let statusBox: HTMLElement | null = null;
 let publishButton: HTMLButtonElement | null = null;
 let versionLine: HTMLElement | null = null;
 
-interface ElementProps {
-  className?: string;
-  text?: string;
-  type?: string;
-  value?: string;
-  disabled?: boolean;
-  attributes?: Record<string, string>;
-}
-
-/** Cria um elemento; o texto entra sempre como texto (nunca como HTML). */
-function el<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, props: ElementProps = {}, children: (Node | string)[] = []): HTMLElementTagNameMap[Tag] {
-  const element = document.createElement(tag);
-  if (props.className) element.className = props.className;
-  if (props.text !== undefined) element.textContent = props.text;
-  if (props.type) element.setAttribute('type', props.type);
-  if (props.value !== undefined) (element as unknown as HTMLInputElement).value = props.value;
-  if (props.disabled) (element as unknown as HTMLButtonElement).disabled = true;
-  for (const [name, value] of Object.entries(props.attributes ?? {})) element.setAttribute(name, value);
-  element.append(...children);
-  return element;
-}
-
 function button(label: string, onClick: () => void, className = '', disabled = false): HTMLButtonElement {
-  const created = el('button', { text: label, className, disabled: disabled || state.isBusy });
-  created.addEventListener('click', onClick);
-  return created;
+  return actionButton(label, onClick, className, disabled || state.isBusy);
 }
 
-function field(label: string, input: HTMLElement, help?: string): HTMLElement {
-  return el('label', {}, [label, input, ...(help ? [el('span', { className: 'help', text: help })] : [])]);
-}
+/** Desenho da área de ataque do formulário aberto; é atualizado sem refazer a tela. */
+let attackPreview: AttackPreview | null = null;
 
 function render(): void {
   statusBox = null;
   publishButton = null;
   versionLine = null;
+  attackPreview = null;
   app.replaceChildren(state.client && state.working ? renderEditor() : renderLogin());
 }
 
@@ -205,6 +191,7 @@ async function reloadFromServer(): Promise<void> {
   state.selectedCharacter = 0;
   state.selectedSynergy = 0;
   state.publishIssues = [];
+  discardPendingAdjustment();
   loadDraft();
 }
 
@@ -222,12 +209,13 @@ function loadDraft(): void {
     state.formDraft = synergy ? (structuredClone(synergy) as Draft) : null;
   } else {
     state.formDraft = null;
-    state.draft = sectionText(working, state.tab);
+    state.draft = isTextSection(state.tab) ? sectionText(working, state.tab) : '';
   }
 }
 
 /** Troca de personagem ou de aba: se o rascunho tem erros, avisa que eles serão descartados. */
 function confirmLeavingDraft(): boolean {
+  if (!confirmLeavingAdjustment()) return false;
   return state.draftIssues.length === 0 || window.confirm('O item em edição tem erros e eles serão descartados. Continuar?');
 }
 
@@ -236,7 +224,8 @@ function confirmLeavingDraft(): boolean {
 function canPublish(): boolean {
   const working = state.working;
   const published = state.published;
-  return !!working && !!published && hasChanges(published, working) && contentIssues(working).length === 0 && state.draftIssues.length === 0;
+  const hasUnfinishedEdit = state.draftIssues.length > 0 || hasPendingAdjustment();
+  return !!working && !!published && hasChanges(published, working) && contentIssues(working).length === 0 && !hasUnfinishedEdit;
 }
 
 function renderEditor(): HTMLElement {
@@ -266,10 +255,60 @@ function renderEditor(): HTMLElement {
     );
   });
 
-  const body = state.tab === 'characters' ? renderCharacters(working) : state.tab === 'synergies' ? renderSynergies(working) : renderSection(state.tab);
+  const body = renderTabBody(working);
   statusBox = el('div');
   refreshStatus();
   return el('div', {}, [header, el('div', { className: 'panel' }, [tabs, body]), statusBox]);
+}
+
+function renderTabBody(working: GameContent): HTMLElement {
+  switch (state.tab) {
+    case 'characters':
+      return renderCharacters(working);
+    case 'sprites':
+      return renderSpritesView(spritesContext());
+    case 'synergies':
+      return renderSynergies(working);
+    case 'activities':
+      return renderActivities();
+    default:
+      return renderSection(state.tab);
+  }
+}
+
+function spritesContext(): SpritesViewContext {
+  return {
+    content: () => state.working as GameContent,
+    serverUrl: state.serverUrl,
+    isBusy: state.isBusy,
+    upload: async (uploadId, png) => {
+      if (!state.client) throw new AdminRequestError('A sessão expirou. Entre de novo.', 'unauthorized');
+      return state.client.uploadSprite(uploadId, png);
+    },
+    apply: (content, message) => {
+      state.working = content;
+      state.message = { kind: 'ok', text: message };
+      render();
+    },
+    applyQuietly: (content) => {
+      state.working = content;
+      state.message = null;
+      refreshStatus();
+    },
+    render,
+    refreshStatus,
+  };
+}
+
+function renderActivities(): HTMLElement {
+  return renderActivitiesView({
+    client: state.client as AdminClient,
+    onSessionExpired: (message) => {
+      state.client = null;
+      state.message = { kind: 'error', text: message };
+      render();
+    },
+  });
 }
 
 /** Atualiza só o botão de publicar e a caixa de avisos (sem refazer os campos). */
@@ -292,6 +331,9 @@ function refreshStatus(): void {
   }
   if (state.publishIssues.length > 0) {
     children.push(el('div', { className: 'issues', text: `O servidor recusou:\n${state.publishIssues.join('\n')}` }));
+  }
+  if (hasPendingAdjustment()) {
+    children.push(el('div', { className: 'issues', text: 'Há um ajuste de sprite que não foi aplicado. Use "Aplicar ajuste" ou "Voltar ao aplicado" para poder publicar.' }));
   }
   if (state.draftIssues.length > 0) {
     children.push(el('div', { className: 'issues', text: `Este personagem tem erros (as alterações dele ainda não valem):\n${state.draftIssues.join('\n')}` }));
@@ -454,6 +496,7 @@ function commitDraft(next: Draft): void {
     state.draftIssues = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   }
   state.message = null;
+  attackPreview?.update(next);
   refreshStatus();
 }
 
@@ -470,10 +513,17 @@ function renderCharacterForm(draft: Draft): HTMLElement {
   form.append(section('Dados básicos', renderFields(BASIC_FIELDS), true));
   form.append(section('Atributos (escala de 1 a 10)', renderFields(STAT_FIELDS), true));
   form.append(section('Comportamento em combate', renderFields(BEHAVIOR_FIELDS), false));
+  form.append(renderAttackSection(draft));
   form.append(renderAbilitySection(draft));
   form.append(section('Evolução por estrelas', renderFields(EVOLUTION_FIELDS), false));
   form.append(renderAdvancedSection(draft));
   return form;
+}
+
+function renderAttackSection(draft: Draft): HTMLElement {
+  attackPreview = createAttackPreview();
+  attackPreview.update(draft);
+  return section('Ataque básico (área)', el('div', {}, [renderFields(ATTACK_FIELDS), attackPreview.element]), true);
 }
 
 function section(title: string, content: HTMLElement, open: boolean): HTMLElement {
@@ -488,7 +538,7 @@ function renderFields(specs: readonly FieldSpec[]): HTMLElement {
 
 function renderField(spec: FieldSpec): HTMLElement {
   const draft = state.formDraft as Draft;
-  const current = getAt(draft, spec.path);
+  const current = getAt(draft, spec.path) ?? spec.fallback;
   let input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
   switch (spec.kind) {
@@ -646,6 +696,7 @@ function renderSpriteSection(draft: Draft): HTMLElement {
   const actions = el('div', { className: 'row' }, [fileInput, upload]);
   if (sprite?.path) {
     actions.append(
+      button('Ajustar com prévia', () => openSpriteAdjustment(String(draft.id)), 'quiet'),
       button(
         'Remover sprite',
         () => {
@@ -657,13 +708,22 @@ function renderSpriteSection(draft: Draft): HTMLElement {
   }
 
   content.append(
-    el('div', { className: 'note', text: 'PNG com fundo transparente, de até 1 MB e 1024×1024 pixels, com o personagem de pé e de frente. A imagem é ajustada à altura do personagem provisório; use a escala e a âncora para acertar o tamanho e os pés.' }),
+    el('div', { className: 'note', text: 'PNG com fundo transparente, de até 1 MB e 1024×1024 pixels, com o personagem de pé, de perfil, olhando para a DIREITA (o jogo espelha a imagem para a esquerda). Para acertar posição, tamanho e pés vendo o resultado, use "Ajustar com prévia" (aba "Sprites e ícones").' }),
     el('div', { className: 'row top' }, [preview, el('div', {}, [actions, status])]),
   );
   if (sprite?.path) {
     content.append(renderFields(SPRITE_FIELDS), el('div', { className: 'muted', text: `Arquivo: ${sprite.path}` }));
   }
   return section('Sprite', content, true);
+}
+
+function openSpriteAdjustment(characterId: string): void {
+  if (!confirmLeavingDraft()) return;
+  selectSpriteTarget({ kind: 'character', key: characterId });
+  state.tab = 'sprites';
+  state.message = null;
+  loadDraft();
+  render();
 }
 
 async function uploadSprite(fileInput: HTMLInputElement, status: HTMLElement, image: HTMLImageElement, placeholder: HTMLElement): Promise<void> {
@@ -687,8 +747,8 @@ async function uploadSprite(fileInput: HTMLInputElement, status: HTMLElement, im
   status.textContent = 'Enviando…';
   try {
     const path = await state.client.uploadSprite(String(draft.id), bytes);
-    const existing = (getAt(draft, ['sprite']) as Record<string, unknown> | undefined) ?? DEFAULT_SPRITE;
-    commitDraftAndRender(setAt(state.formDraft as Draft, ['sprite'], { ...DEFAULT_SPRITE, ...existing, path }));
+    const existing = (getAt(draft, ['sprite']) as Record<string, unknown> | undefined) ?? DEFAULT_SPRITE_ADJUSTMENT;
+    commitDraftAndRender(setAt(state.formDraft as Draft, ['sprite'], { ...DEFAULT_SPRITE_ADJUSTMENT, ...existing, path }));
   } catch (failure) {
     status.textContent = failure instanceof AdminRequestError ? failure.message : 'Não foi possível enviar o sprite.';
   }
@@ -1034,11 +1094,12 @@ async function signOut(): Promise<void> {
   state.published = null;
   state.formDraft = null;
   state.message = null;
+  discardPendingAdjustment();
   render();
 }
 
 window.addEventListener('beforeunload', (event) => {
-  if (state.published && state.working && hasChanges(state.published, state.working)) {
+  if (hasPendingAdjustment() || (state.published && state.working && hasChanges(state.published, state.working))) {
     event.preventDefault();
   }
 });

@@ -7,13 +7,13 @@ import { expectWithin, LONG_TEST_TIMEOUT_MS, type Band } from './balanceBands';
 /** GDD: partidas de 6 a 10 minutos. */
 const ESTIMATED_MINUTES: Band = { minimum: 6, maximum: 10 };
 const AVERAGE_ROUNDS: Band = { minimum: 5, maximum: 10 };
-/** Com 4 lugares o equilíbrio é 25%; a margem cobre o acaso de poucas dezenas de partidas. */
+/** Com 4 lugares o equilíbrio é 25%; a margem cobre a vantagem do primeiro lugar (perto de 30%) e o acaso da amostra. */
 const SEAT_WIN_SHARE: Band = { minimum: 0.12, maximum: 0.4 };
 
 describe('balanceamento das partidas completas (4 bots)', () => {
   let report: GameBatchReport;
   beforeAll(() => {
-    report = runGameBatch({ games: 80, seedBase: 5, roster: DEFAULT_CHARACTERS, synergyMapping: INITIAL_SYNERGY_MAPPING });
+    report = runGameBatch({ games: 300, seedBase: 5, roster: DEFAULT_CHARACTERS, synergyMapping: INITIAL_SYNERGY_MAPPING });
   }, LONG_TEST_TIMEOUT_MS);
 
   it('nenhuma partida trava', () => {

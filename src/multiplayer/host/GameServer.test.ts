@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ClientMessage } from '../protocol/clientMessages';
 import { PROTOCOL_VERSION, type ServerMessage } from '../protocol/serverMessages';
+import { DEFAULT_COMBAT_TIME_LIMIT_MS } from '@combat/engine/constants';
 import { GameServer } from './GameServer';
 import { ManualScheduler } from './scheduler';
 
@@ -156,7 +157,7 @@ describe('servidor WebSocket', () => {
 
     const combat = await ana.waitFor('combat_started');
     expect(combat.duel?.combatConfig.units.length).toBeGreaterThan(0);
-    scheduler.advance(31_000);
+    scheduler.advance(DEFAULT_COMBAT_TIME_LIMIT_MS + 1000);
     const result = await ana.waitFor('round_result');
     expect(result.round).toBe(1);
     expect(result.players).toHaveLength(4);

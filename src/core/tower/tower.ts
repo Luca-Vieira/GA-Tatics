@@ -35,7 +35,7 @@ export function buildTowerCharacter(config: TowerConfig): CharacterDefinition {
     ability: {
       id: 'tower_income',
       name: 'Renda',
-      description: `Rende +${config.incomePerRound} moedas por rodada enquanto estiver no tabuleiro e de pé. Os inimigos podem atacá-la: proteja-a. Se for destruída, some para sempre.`,
+      description: `Rende +${config.incomePerRound} moedas por rodada enquanto estiver no tabuleiro e de pé. Os inimigos podem atacá-la: proteja-a. Se for destruída, some para sempre, mas você recebe +${config.compensationOnLoss} moedas (uma única vez) no início da rodada seguinte.`,
       activation: { type: 'passive' },
       cooldownSeconds: 0,
       // A torre não age em combate; este efeito existe só porque toda habilidade precisa de ao menos um.

@@ -3,11 +3,11 @@ import { hexDistance, hexesAreEqual, hexKey } from '../utils/hex';
 import { BOARD_CELLS, cellsOfSide, cellsWithinRange, isInsideBoard, mirrorCell, sideOfCell } from './board';
 
 describe('tabuleiro', () => {
-  it('tem 40 casas distintas, 20 por lado', () => {
-    expect(BOARD_CELLS).toHaveLength(40);
-    expect(new Set(BOARD_CELLS.map(hexKey)).size).toBe(40);
-    expect(cellsOfSide('A')).toHaveLength(20);
-    expect(cellsOfSide('B')).toHaveLength(20);
+  it('tem 60 casas distintas, 30 por lado', () => {
+    expect(BOARD_CELLS).toHaveLength(60);
+    expect(new Set(BOARD_CELLS.map(hexKey)).size).toBe(60);
+    expect(cellsOfSide('A')).toHaveLength(30);
+    expect(cellsOfSide('B')).toHaveLength(30);
   });
 
   it('reconhece casas de dentro e de fora', () => {

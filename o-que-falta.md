@@ -16,7 +16,7 @@ Funciona e está testado (typecheck, lint, build e todos os testes limpos):
 - **Painel `/admin`** (`admin/index.html`, `src/admin/`, API em `src/multiplayer/host/adminApi.ts`): login único por variáveis de ambiente, edição do conteúdo em JSON, publicação com aviso aos jogadores (Seção 17 do `decisoes-de-design.md`).
 - **Congelar oferta, alcance de ataque e torre** (Seção 15) e o personagem **Derson** (Seção 16, inativo por padrão).
 
-Não existe ainda: reconexão, TLS, formulários por campo no `/admin` e polimento.
+Não existe ainda: reconexão nem login de jogador.
 
 Comandos:
 
@@ -29,6 +29,31 @@ Comandos:
 | `npm run sim:games -- --games 200` | Simulador de partidas completas com 4 bots |
 | `npm run server [-- --lan] [-- --port N]` | Servidor de rede (padrão: só `127.0.0.1:8787`). Com `ADMIN_USERNAME` e `ADMIN_PASSWORD` definidos (senha de 8+ caracteres) liga o painel; o conteúdo editado fica em `server-data/content.json` |
 | `http://localhost:5173/admin` | Painel de administração (com `npm run dev` e o servidor no ar) |
+
+### Entrega de 25/11/2026 (Seção 21 do `decisoes-de-design.md`)
+
+Os itens do documento de requisitos do dono foram implementados. Typecheck, lint, build e 633 testes limpos. **A VPS ainda roda a versão anterior** (protocolo novo: servidor e página precisam ser atualizados juntos).
+
+**Conferido no navegador** (servidor local): saguão e galeria (desktop e 667×375), sala de 2, compra e posicionamento, espectador, painel (abas "Sprites e ícones" e "Em andamento", encerrar sala) e "Sair" em rede; o subagente da tela conferiu partida contra bots em 1280×720, 844×390, 667×375 e 375×812.
+
+**Falta conferir:**
+- Celular de verdade (toque, arrasto, desempenho) e o som (ninguém ouviu).
+- Desenho dos ataques em foice, tracejada, círculo e semicírculo, um a um.
+- Envio de um sprite real pelo painel e o resultado na partida; arrastar na prévia; painel em tela estreita.
+- Partida com pessoas em máquinas diferentes e uma partida de 8 até o fim.
+
+**Pendências conhecidas:**
+- A galeria e a prévia do painel ainda desenham o boneco provisório como cápsula; no jogo ele é de perfil. Os tamanhos do boneco estão copiados em `src/admin/spriteAdjust.ts` (origem: `src/rendering/sprites/unitTexture.ts`).
+- Equilíbrio não calibrado para 2, 3, 5 e 8 jogadores; Moço perto do piso com 5 unidades; Helder e João Lucas perto de 40% com 3.
+- Um `content.json` já publicado mantém os valores gravados nele (por exemplo, loja e reserva de 3).
+- Espectador: um jogador pode assistir à própria sala em outra aba.
+- `config.tower.compensationOnLoss` é editado no JSON da aba Configuração.
+
+### Ajustes seguintes (Seção 22 do `decisoes-de-design.md`)
+
+- Conferido no navegador: foice para cima e para baixo sob o personagem, área do Matheus, nitidez com 1 pixel por pixel (também ao redimensionar no meio da partida), e preparação, detalhes e combate em 667×375.
+- Falta conferir: celular de verdade; o resultado da rodada e a confirmação de saída no modo compacto; sprites enviados grandes, reduzidos muitas vezes na tela, podem serrilhar.
+- Equilíbrio: Wender e Moço estão perto dos limites da faixa; o 1º lugar da mesa de bots vence de 29% a 33%.
 
 ## 2. Regras de trabalho (do `~/.claude/CLAUDE.md` do dono do projeto)
 
@@ -48,7 +73,7 @@ Comandos:
 - `src/multiplayer` pode importar `core`, `combat` e `data`. `src/rendering` pode importar o protocolo (`src/multiplayer/protocol/`) para tipos, mas não código do servidor (`host/`, `rooms/`), que usa módulos do Node.
 - Aliases: `@core @combat @rendering @multiplayer @admin @data @shared`.
 - O combate não conhece sinergias: o `core` calcula os `TeamBonuses` de cada unidade e os entrega em `UnitSpec.bonuses`.
-- Casas do tabuleiro: hexágonos "pointy-top", coordenadas axiais, grade 8×5 (linhas 0–3 lado A, 4–7 lado B). As unidades de um jogador ficam sempre no referencial do lado A; quem luta como lado B tem as casas espelhadas (`mirrorCell`).
+- Casas do tabuleiro: coordenadas axiais, grade lógica de 12 linhas × 5 colunas (linhas 0–5 lado A, 6–11 lado B), desenhada deitada. As unidades de um jogador ficam sempre no referencial do lado A; quem luta como lado B tem as casas espelhadas (`mirrorCell`).
 - A `Scene` do Phaser já tem a propriedade `game`; por isso o campo do jogo em `GameScene` se chama `match`.
 - O servidor é a única fonte da verdade. Cliente só envia intenções e nunca decide resultado.
 
@@ -59,7 +84,7 @@ Feita: `GameScene` conduzida por uma `MatchSession` (local ou remota), saguão, 
 O que ficou de fora:
 
 - **Reconexão:** quem cai vira bot e não pode voltar. Seria preciso um token de sessão por jogador (gerado no servidor, guardado no cliente) e um estado `connected` que volte a `true`. Não escrever o token em arquivo versionado. Hoje o cliente mostra "Conexão perdida" e leva ao saguão.
-- **Espectador:** jogador eliminado continua recebendo as rodadas, mas sem tela de espectador (não vê os combates dos outros).
+- **Espectador:** quem assiste pelo hub tem o modo espectador (Seção 21); o jogador eliminado continua na própria tela e precisa sair para assistir a outra pessoa.
 - **Computador lento:** se a animação não acompanha o relógio do servidor, a cena pula o resultado daquela rodada (ver Seção 14). Pode valer um botão "pular animação" ou um tempo máximo de combate no cliente.
 - **Hub de salas (Seção 18):** a lista pública não tem busca nem filtro e mostra até 50 salas; as regras da sala não podem ser mudadas depois de criada; não há expulsar jogador nem passar o anfitrião de volta; a senha da sala viaja sem criptografia (sem TLS). Quem cai de uma partida não volta (ver Reconexão).
 - **Teste entre duas máquinas:** o modo `--lan` ainda não foi testado entre duas máquinas. O endereço padrão do cliente é `ws://<host da página>:8787`; numa página `https` o navegador bloqueia `ws://` (não há TLS).
@@ -80,18 +105,18 @@ O que ficou de fora:
 - **Medição antes de publicar:** o painel não roda os testes de balanceamento. Depois de mexer em números, rode `npm test` e `npm run sim` com o conteúdo editado (copie `server-data/content.json` para os padrões ou carregue-o numa ferramenta) antes de confiar.
 - **Modo local:** a partida contra bots no navegador usa o conteúdo empacotado com o jogo, não o do servidor.
 - **TLS:** a senha do admin trafega sem criptografia; use só em rede de confiança ou atrás de um proxy HTTPS.
-- **Sprites:** o painel envia PNGs e o jogo em rede os usa; a partida local contra bots, as invocações e a torre ainda usam o desenho provisório. Não há animação própria (só os movimentos procedurais), nem imagem para sinergias, e o `server-data/sprites` cresce a cada envio (versões antigas não são apagadas). A distribuição do cliente do jogo (hospedagem) é a Pendência abaixo.
-- **Publicação na VPS (Seção 20 do `decisoes-de-design.md`, passo a passo em `docs/hospedagem-do-servidor.md`):** os arquivos estão prontos. Conferido: build de produção atrás de um proxy local que imita as rotas do Caddy (jogo, `/admin`, envio de sprite e publicação) e `docker compose config`. **Nunca foi executado:** `docker build` das duas imagens, o `Caddyfile` com o Caddy de verdade e as configurações de proxy do guia (nginx, Caddy, Apache, contêiner). A primeira subida na VPS é o primeiro teste real. A VPS já tem outro projeto: falta saber quem usa as portas 80 e 443 (diagnóstico do guia).
+- **Sprites:** o painel envia PNGs (personagens e auxiliares) e o jogo em rede os usa; a partida local contra bots usa o desenho provisório. Não há animação própria nem imagem para sinergias, e o `server-data/sprites` cresce a cada envio (versões antigas não são apagadas).
+- **Publicação na VPS (Seção 20 do `decisoes-de-design.md`, passo a passo em `docs/hospedagem-do-servidor.md`):** **no ar desde 2026-11-24**, atrás do nginx que já existia na VPS, com HTTPS do certbot (renovação automática) e um endereço provisório do sslip.io. Conferido na VPS: construção das duas imagens, `Caddyfile` com o Caddy de verdade, configuração de nginx do guia, `/health`, conexão `wss` com o endereço já preenchido, partida rápida e início de partida contra bots; o outro projeto seguiu respondendo. **Falta conferir:** login no painel (depende de o dono pôr usuário e senha no `.env`), se uma publicação sobrevive a `docker compose restart servidor` e uma partida com pessoas em máquinas diferentes. As partes do guia para Caddy, Apache e proxy em contêiner nunca foram executadas.
 - **Painel em produção:** o `/admin` é um arquivo estático (servido pelo Vite no desenvolvimento e pelo Caddy na VPS). O servidor do jogo só expõe a API.
 
 ## 6. Etapa 6 — polimento e balanceamento
 
-- **Duração do combate:** média de ~17 s, abaixo dos 20–30 s do GDD (`HEALTH_PER_POINT = 150` em `src/combat/units/stats.ts`). Com 200 chegava a 21 s, mas 17–21% dos combates estouravam o limite de 30 s. Decidir com o dono do design se aceita ou se aumenta o limite de tempo e a vida.
+- **Duração do combate:** média de ~21 s com 5 unidades e limite de 35 s (Seção 21).
 - **Estrelas 2 e 3:** os testes de balanceamento usam só unidades de 1 estrela. Medir o peso de 2★ (×2,5) e 3★ (×6), e o custo de chegar lá.
-- **Bots:** simples (compram o que repete ou o mais barato; corpo a corpo na frente). Partidas só entre bots podem esconder problemas de economia que jogadores reais explorariam. Considerar um bot mais forte para medir.
-- **Margens apertadas:** Wilian ~44% e João Lucas ~56% de vitórias; sinergias de nível 1 perto de 60%. Qualquer ajuste novo pode empurrar um número para fora da faixa.
+- **Bots:** simples (priorizam cópias e seguem a ordem da loja). Partidas só entre bots podem esconder problemas de economia que jogadores reais explorariam.
+- **Margens apertadas:** ver as pendências da entrega de 25/11/2026, na Seção 1.
 - **Selo de "atualizado" por personagem:** descartado porque a regra de rotação faz todos mudarem de sinergia em toda rotação (Seção 12 do `decisoes-de-design.md`). Reavaliar se a regra mudar.
-- **Interface e arte:** os personagens usam texturas geradas por código (`src/rendering/sprites/unitTexture.ts`), sem arte final. Sem som. Efeitos de habilidade são desenhos simples em `src/rendering/particles/`.
+- **Interface e arte:** os personagens usam texturas geradas por código (`src/rendering/sprites/unitTexture.ts`), sem arte final. O som é sintetizado (`src/rendering/audio/`).
 - **WebGL:** no painel de pré-visualização do app o WebGL falha ("Framebuffer status: Incomplete Attachment") e o Phaser cai para Canvas, que funciona. Verificar em um navegador comum com WebGL.
 - **Tamanho do pacote:** um único chunk de ~1,4 MB (Phaser). `chunkSizeWarningLimit` está em 1500; dividir só se importar.
 
@@ -126,7 +151,7 @@ Faixas atuais: vitórias por personagem 42–58% (times de 5), 40–60% (7) e 38
 - O Phaser sobrescreve o `display` do elemento raiz de um `add.dom(...)`; ponha o painel (que usa flex) dentro de um invólucro.
 - No Windows, parar `npm run server` pelo gerenciador pode deixar o `node` filho vivo na porta 8787; confira com `Get-NetTCPConnection -LocalPort 8787`.
 - O conteúdo do servidor é validado ao ser lido do arquivo; se `server-data/content.json` ficar inválido o servidor sobe com os padrões e avisa no log. Apague o arquivo para voltar aos padrões de vez.
-- Ao mudar o formato do `hello` ou das mensagens, aumente `PROTOCOL_VERSION` (hoje 2): o cliente recusa servidor de outra versão.
+- Ao mudar o formato do `hello` ou das mensagens, aumente `PROTOCOL_VERSION` (hoje 4): o cliente recusa servidor de outra versão.
 - No painel de pré-visualização o Canvas roda a ~2 quadros por segundo; para conferir resultado e fim de partida, pule a animação (`scene.playback.advanceTo(60000)` pelo console).
 - Retomar uma partida parada na tela de resultado exige `startNextRound()` antes de `resolveCombats()` (já tratado em `playMatchWithBots`).
 - Efeitos temporários criados em tween precisam de `markTransient` / `destroyTransientEffects`, senão sobram textos e efeitos órfãos depois de `tweens.killAll()`.

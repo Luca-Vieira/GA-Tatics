@@ -3,6 +3,7 @@ import { DEFAULT_CHARACTERS } from '@data/defaults/characters';
 import { hexDistance, hexKey, offsetToAxial, type Hex } from '@shared/utils/hex';
 import { applyStatusToUnit, findStatus, type StatusSpec } from './effects/status';
 import { computeModifiers } from './effects/modifiers';
+import { DEFAULT_COMBAT_TIME_LIMIT_MS } from './engine/constants';
 import { CombatSimulation } from './engine/CombatSimulation';
 import { createRosterScenario } from './units/scenarios';
 import { findRetreatCell, isTooCloseToEnemies } from './movement/retreat';
@@ -179,7 +180,7 @@ describe('elenco completo em combate', () => {
           expect(unit.health).toBeLessThanOrEqual(unit.stats.maxHealth + 1e-9);
         }
       }
-      expect(simulation.result!.durationMs).toBeLessThanOrEqual(30_000);
+      expect(simulation.result!.durationMs).toBeLessThanOrEqual(DEFAULT_COMBAT_TIME_LIMIT_MS);
     }
   }, 60_000);
 

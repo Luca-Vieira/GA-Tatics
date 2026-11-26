@@ -79,6 +79,12 @@ const placeTrapEffectSchema = z.strictObject({
   summon: summonDefinitionSchema,
 });
 
+/** Invocação direta: as criaturas aparecem na hora, nas casas livres junto de quem invoca, e lutam até o fim da duração. */
+const summonEffectSchema = z.strictObject({
+  type: z.literal('summon'),
+  summon: summonDefinitionSchema,
+});
+
 /** Clone provocador: não ataca nem se move, mas os inimigos próximos passam a atacá-lo enquanto ele durar. */
 const summonDecoyEffectSchema = z.strictObject({
   type: z.literal('summon_decoy'),
@@ -128,6 +134,7 @@ export const effectSchema = z.discriminatedUnion('type', [
   healEffectSchema,
   statusEffectSchema,
   placeTrapEffectSchema,
+  summonEffectSchema,
   summonDecoyEffectSchema,
   registeredEffectSchema,
 ]);
@@ -162,6 +169,10 @@ const castSchema = z.strictObject({
 export const abilityVisualSchema = z.strictObject({
   kind: z.enum(['burst', 'projectile', 'rain', 'aura', 'none']),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  /** Ícone curto (letra ou emoji) mostrado ao usar a habilidade e nas fichas. */
+  icon: z.string().min(1).max(8).optional(),
+  /** Ícone curto desenhado no lugar do projétil (ataques à distância e disparos da habilidade). */
+  projectileIcon: z.string().min(1).max(8).optional(),
 });
 
 export const abilitySchema = z

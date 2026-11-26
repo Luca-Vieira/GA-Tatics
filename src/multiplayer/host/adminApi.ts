@@ -1,12 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AdminAuth } from './adminAuth';
+import type { GameContent } from '@data/schemas/content';
 import type { ContentStore } from './contentStore';
+import type { LiveActivities } from './liveActivities';
 import { MAXIMUM_SPRITE_BYTES, type SpriteStore } from './spriteStore';
 import { isOriginAllowed } from './originPolicy';
 
 const LOGIN_BODY_LIMIT_BYTES = 4 * 1024;
 const CONTENT_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
 const API_PREFIX = '/api/admin/';
+/** Caminhos que existem: com o método errado, respondem 405 em vez de 404. */
+const KNOWN_PATHS: readonly string[] = ['/api/admin/login', '/api/admin/logout', '/api/admin/content', '/api/admin/activities'];
 
 export interface AdminApiOptions {
   /** `null`: o painel está desligado (sem usuário e senha configurados). */
@@ -18,6 +22,8 @@ export interface AdminApiOptions {
   readonly allowedOrigins?: readonly string[];
   /** Há um proxy na frente: o IP de quem tenta entrar vem de `X-Forwarded-For`. */
   readonly trustProxy?: boolean;
+  /** Salas do servidor do jogo, para o painel ver e encerrar. Sem isso, as rotas de salas respondem 501. */
+  readonly liveActivities?: LiveActivities;
 }
 
 class HttpError extends Error {
@@ -36,7 +42,9 @@ class HttpError extends Error {
  *   POST /api/admin/logout                                    (com o token)
  *   GET  /api/admin/content                                   → { version, content }
  *   PUT  /api/admin/content  { baseVersion, content }        → { version }
- *   PUT  /api/admin/sprites/<id do personagem>   (corpo: o PNG, Content-Type image/png) → { path }
+ *   PUT  /api/admin/sprites/<id do sprite>       (corpo: o PNG, Content-Type image/png) → { path }
+ *   GET  /api/admin/activities                                → { activities: [ salas em espera ou em jogo ] }
+ *   POST /api/admin/activities/<código da sala>/end           → { ok: true } (404 se a sala não existir)
  * O token vai no cabeçalho `Authorization: Bearer ...` (nunca em cookie, então outra página não consegue agir em nome do admin).
  * Páginas de fora da rede local/privada são recusadas.
  */
@@ -81,8 +89,19 @@ export class AdminApi {
       return;
     }
 
+    const endMatch = /^\/api\/admin\/activities\/([A-Za-z0-9]{1,16})\/end$/.exec(path);
+    if (endMatch && request.method === 'POST') {
+      this.requireSession(request, auth);
+      this.endActivity(request, response, endMatch[1] as string);
+      return;
+    }
+
     const route = `${request.method} ${path}`;
     switch (route) {
+      case 'GET /api/admin/activities':
+        this.requireSession(request, auth);
+        this.sendJson(request, response, 200, { activities: this.requireLiveActivities().list() });
+        return;
       case 'POST /api/admin/login':
         await this.login(request, response, auth);
         return;
@@ -102,8 +121,24 @@ export class AdminApi {
         await this.publishContent(request, response);
         return;
       default:
-        throw new HttpError(path === '/api/admin/login' || path === '/api/admin/logout' || path === '/api/admin/content' ? 405 : 404, 'not_found');
+        throw new HttpError(KNOWN_PATHS.includes(path) ? 405 : 404, 'not_found');
     }
+  }
+
+  private requireLiveActivities(): LiveActivities {
+    const { liveActivities } = this.options;
+    if (!liveActivities) {
+      throw new HttpError(501, 'activities_unavailable');
+    }
+    return liveActivities;
+  }
+
+  private endActivity(request: IncomingMessage, response: ServerResponse, roomCode: string): void {
+    if (!this.requireLiveActivities().end(roomCode)) {
+      throw new HttpError(404, 'activity_not_found');
+    }
+    this.options.log(`Sala ${roomCode} encerrada pelo administrador.`);
+    this.sendJson(request, response, 200, { ok: true });
   }
 
   private async login(request: IncomingMessage, response: ServerResponse, auth: AdminAuth): Promise<void> {
@@ -136,29 +171,29 @@ export class AdminApi {
     this.sendJson(request, response, 200, { version: result.version });
   }
 
-  private async uploadSprite(request: IncomingMessage, response: ServerResponse, characterId: string): Promise<void> {
+  private async uploadSprite(request: IncomingMessage, response: ServerResponse, spriteId: string): Promise<void> {
     if ((request.headers['content-type'] ?? '').toLowerCase().split(';')[0]?.trim() !== 'image/png') {
       throw new HttpError(415, 'png_required');
     }
     const bytes = await this.readBody(request, MAXIMUM_SPRITE_BYTES);
-    const result = this.options.sprites.save(characterId, bytes);
+    const result = this.options.sprites.save(spriteId, bytes);
     if (!result.ok) {
       const status = result.error === 'too_large' ? 413 : result.error === 'invalid_character_id' ? 400 : 422;
       throw new HttpError(status, result.error);
     }
-    this.options.log(`Sprite enviado pelo administrador para ${characterId} (${result.path}).`);
+    this.options.log(`Sprite enviado pelo administrador para ${spriteId} (${result.path}).`);
     this.sendJson(request, response, 200, { path: result.path });
   }
 
   /** Todo sprite citado pelo conteúdo precisa existir no servidor, senão os jogadores veriam a imagem quebrada. */
-  private missingSpriteIssues(content: { characters: readonly { sprite?: { path: string } }[] }): string[] {
-    const issues: string[] = [];
-    content.characters.forEach((character, position) => {
-      if (character.sprite && !this.options.sprites.has(character.sprite.path)) {
-        issues.push(`characters.${position}.sprite.path: o sprite não foi enviado a este servidor.`);
-      }
-    });
-    return issues;
+  private missingSpriteIssues(content: Pick<GameContent, 'characters' | 'auxiliarySprites'>): string[] {
+    const citedSprites = [
+      ...content.characters.map((character, position) => ({ at: `characters.${position}.sprite.path`, path: character.sprite?.path })),
+      ...Object.entries(content.auxiliarySprites).map(([key, sprite]) => ({ at: `auxiliarySprites.${key}.path`, path: sprite.path })),
+    ];
+    return citedSprites
+      .filter(({ path }) => path !== undefined && !this.options.sprites.has(path))
+      .map(({ at }) => `${at}: o sprite não foi enviado a este servidor.`);
   }
 
   // --- Apoio --------------------------------------------------------------------------------------

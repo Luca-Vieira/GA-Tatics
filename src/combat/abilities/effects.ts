@@ -30,6 +30,9 @@ function applyEffect(world: CombatWorld, cast: CastContext, effect: EffectDefini
     case 'place_trap':
       applyTrapEffect(world, cast, effect);
       return;
+    case 'summon':
+      applySummonEffect(world, cast, effect);
+      return;
     case 'summon_decoy':
       applyDecoyEffect(world, cast, effect);
       return;
@@ -95,6 +98,24 @@ function applyTrapEffect(world: CombatWorld, cast: CastContext, effect: Extract<
     triggerRadius: effect.triggerRadius,
     armingMs: effect.armingSeconds * 1000,
     lifetimeMs: effect.lifetimeSeconds * 1000,
+    starMultiplier: caster.starMultiplier,
+    summon: {
+      name: effect.summon.name,
+      stats: effect.summon.stats,
+      count: effect.summon.count,
+      lifetimeMs: effect.summon.lifetimeSeconds * 1000,
+    },
+  });
+}
+
+/** Invocação direta: sem armadilha, as criaturas surgem junto de quem invocou. */
+function applySummonEffect(world: CombatWorld, cast: CastContext, effect: Extract<EffectDefinition, { type: 'summon' }>): void {
+  const { caster, center } = cast;
+  world.spawnSummons({
+    ownerId: caster.id,
+    side: caster.side,
+    anchor: caster.cell,
+    towards: center,
     starMultiplier: caster.starMultiplier,
     summon: {
       name: effect.summon.name,

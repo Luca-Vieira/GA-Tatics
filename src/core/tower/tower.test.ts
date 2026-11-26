@@ -18,7 +18,10 @@ describe('torre na loja', () => {
   it('com 100% de chance toda vaga vira torre, até o máximo por jogador', () => {
     const player = makePlayer();
     refillShop(player, contextWithTowers(100, 2));
-    expect(player.shop.map((offer) => offer?.characterId)).toEqual([TOWER_ID, TOWER_ID, expect.not.stringMatching(TOWER_ID)]);
+    const offeredIds = player.shop.map((offer) => offer?.characterId);
+    expect(offeredIds).toHaveLength(DEFAULT_GAME_CONFIG.shop.offerSize);
+    expect(offeredIds.slice(0, 2)).toEqual([TOWER_ID, TOWER_ID]);
+    expect(offeredIds.slice(2)).not.toContain(TOWER_ID);
     expect(player.shop[0]?.cost).toBe(towerConfig.cost);
   });
 
@@ -94,7 +97,7 @@ describe('torre na economia', () => {
 const game = makeGame();
 
 describe('torre no combate', () => {
-  it('entra como estrutura: não se move, não ataca, e o combate acaba quando só ela resta de um lado', () => {
+  it('entra como estrutura: não se move, não ataca, e é atacada mesmo quando só ela resta de um lado', () => {
     const game = makeGame();
     const player = game.getPlayer('p1');
     giveUnit(player, TOWER_ID, { kind: 'board', cell: cellAt(2, 3) });
@@ -107,10 +110,12 @@ describe('torre no combate', () => {
     expect(bixo.characterId).toBe('bixo');
     const simulation = new CombatSimulation({ seed: 'torre', units: [...specs, ...enemySpecs] });
     const result = simulation.run();
-    // Só há torre de um lado: o outro lado vence na hora, e a torre não conta como unidade viva.
+    // Só há torre de um lado: o combate segue até ela cair. A torre não conta como unidade viva.
     expect(result.winner).toBe('B');
     expect(result.aliveCountBySide.A).toBe(0);
-    expect(result.destroyedStructureIds).toEqual([]);
+    expect(result.destroyedStructureIds).toEqual([specs[0]!.id]);
+    const events = simulation.drainEvents();
+    expect(events.some((event) => (event.type === 'move' || event.type === 'attack') && (event.type === 'move' ? event.unitId : event.attackerId) === specs[0]!.id)).toBe(false);
   });
 
   it('uma torre que apanha até morrer aparece em destroyedStructureIds e não entre os sobreviventes', () => {

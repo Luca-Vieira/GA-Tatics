@@ -1,9 +1,16 @@
 import type { SpriteSource } from '@core/game/MatchSession';
+import { isTowerId } from '@core/tower/tower';
+import { TOWER_SPRITE_KEY } from '@data/auxiliarySprites';
+
+/** Os sprites auxiliares chegam em `SpriteSource.characterId` como `aux:<chave>` (veja `MatchSession.ts`). */
+function auxiliarySpriteSourceId(key: string): string {
+  return `aux:${key}`;
+}
 
 /** Como desenhar o sprite de um personagem (o que o painel de administração configura). */
 export interface SpriteAppearance {
   readonly textureKey: string;
-  /** Multiplica o tamanho padrão (a altura da imagem é ajustada à da cápsula provisória). */
+  /** Multiplica o tamanho padrão (a altura da imagem é ajustada à do boneco provisório). */
   readonly scale: number;
   readonly offsetX: number;
   readonly offsetY: number;
@@ -26,4 +33,14 @@ export function appearanceOfSource(source: SpriteSource): SpriteAppearance {
     anchorX: source.anchorX,
     anchorY: source.anchorY,
   };
+}
+
+/** Sob qual id procurar o sprite de uma unidade em combate: invocações, clones e torre usam os sprites auxiliares. */
+export function spriteIdOfCombatUnit(unit: { readonly characterId: string | null; readonly auxiliarySpriteKey: string | null }): string | null {
+  return unit.auxiliarySpriteKey === null ? unit.characterId : auxiliarySpriteSourceId(unit.auxiliarySpriteKey);
+}
+
+/** O mesmo para uma unidade do jogador (ou oferta da loja), em que a torre aparece como um "personagem". */
+export function spriteIdOfCharacter(characterId: string): string {
+  return isTowerId(characterId) ? auxiliarySpriteSourceId(TOWER_SPRITE_KEY) : characterId;
 }

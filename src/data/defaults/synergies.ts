@@ -13,14 +13,14 @@ export const DEFAULT_SYNERGIES: readonly SynergyDefinition[] = [
       {
         threshold: 2,
         effects: [
-          { type: 'resistance_bonus', value: 0.05 },
+          { type: 'resistance_bonus', value: 0.04 },
           { type: 'hp_regen', value: 0.01, tickSeconds: 3 },
         ],
       },
       {
         threshold: 4,
         effects: [
-          { type: 'resistance_bonus', value: 0.09 },
+          { type: 'resistance_bonus', value: 0.08 },
           { type: 'hp_regen', value: 0.015, tickSeconds: 3 },
         ],
       },
@@ -63,15 +63,15 @@ export const DEFAULT_SYNERGIES: readonly SynergyDefinition[] = [
       {
         threshold: 2,
         effects: [
-          { type: 'attribute_multiplier', attribute: 'damage', value: 1.06 },
-          { type: 'attribute_multiplier', attribute: 'attackSpeed', value: 1.04 },
+          { type: 'attribute_multiplier', attribute: 'damage', value: 1.05 },
+          { type: 'attribute_multiplier', attribute: 'attackSpeed', value: 1.03 },
         ],
       },
       {
         threshold: 4,
         effects: [
-          { type: 'attribute_multiplier', attribute: 'damage', value: 1.12 },
-          { type: 'attribute_multiplier', attribute: 'attackSpeed', value: 1.08 },
+          { type: 'attribute_multiplier', attribute: 'damage', value: 1.09 },
+          { type: 'attribute_multiplier', attribute: 'attackSpeed', value: 1.05 },
         ],
       },
     ],
@@ -99,7 +99,7 @@ export const INITIAL_SYNERGY_MAPPING: Readonly<Record<string, string>> = {
 };
 
 export const DEFAULT_SYNERGY_ROTATION: SynergyRotationConfig = synergyRotationConfigSchema.parse({
-  intervalDays: 2,
+  intervalDays: 1,
   anchor: '2026-01-01T00:00:00Z',
   seedPrefix: 'merge-escritorio-rot-',
   override: null,

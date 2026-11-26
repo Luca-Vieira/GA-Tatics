@@ -21,11 +21,16 @@ export interface HumanDuel {
   readonly topId: string;
   readonly bottomId: string;
   readonly combatConfig: CombatConfig;
+  /** Quanto do combate já passou, em ms (quem começa a assistir no meio): a cena deve adiantar a animação até aqui. */
+  readonly elapsedMs?: number;
 }
 
 /** Imagem de um personagem que o jogo deve baixar do servidor e usar no lugar do desenho provisório. */
 export interface SpriteSource {
+  /** Id do personagem; nos sprites auxiliares é `aux:<chave>`, para nunca colidir com um personagem. */
   readonly characterId: string;
+  /** Só nos sprites auxiliares (torre, cavalo, protagonista...): a chave em `GameContent.auxiliarySprites`. */
+  readonly auxiliaryKey?: string;
   readonly url: string;
   readonly scale: number;
   readonly offsetX: number;
@@ -70,8 +75,17 @@ export interface SessionListener {
   connectionLost(): void;
 }
 
+/** Quem só assiste: escolhe de quem vê o tabuleiro, a loja e os duelos. */
+export interface SpectatorControls {
+  readonly watchedPlayerId: string;
+  watch(playerId: string): void;
+}
+
 export interface MatchSession {
+  /** Jogador cuja visão a tela desenha: o próprio, ou o assistido no modo espectador. */
   readonly humanId: string;
+  /** `null` para quem joga. Para quem assiste, toda ação é recusada com a falha "spectator" e nada muda. */
+  readonly spectator: SpectatorControls | null;
   readonly match: MatchView;
   /** Regras especiais da sala em texto curto, para mostrar no começo da partida (vazio = regras normais). */
   readonly roomRules: readonly string[];
@@ -97,5 +111,7 @@ export interface MatchSession {
   presentationFinished(): void;
   /** O jogador fechou (ou deixou expirar) a tela de resultado. */
   continueAfterResult(): void;
+  /** Abandona a partida (a tela pede a confirmação antes). Em rede, um bot assume a vaga. */
+  leave(): void;
   dispose(): void;
 }

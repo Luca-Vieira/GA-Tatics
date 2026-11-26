@@ -5,8 +5,9 @@
   "description": "Dano explosivo. Persegue quem está mais frágil.",
   "category": "assassin",
   "rarity": "rare",
-  "stats": { "health": 3, "damage": 8, "attackSpeed": 9, "range": 1, "mobility": 10 },
+  "stats": { "health": 4, "damage": 8, "attackSpeed": 9, "range": 1, "mobility": 10 },
   "behavior": { "movement": "chase", "targetPriority": "lowest_health", "preferredDistance": 1 },
+  "attack": { "shape": "diagonals" },
   "ability": {
     "id": "ambush",
     "name": "Errinho na sexta à tarde",
@@ -18,6 +19,6 @@
       { "type": "damage", "targets": "center_unit", "multiplier": 1.5 },
       { "type": "status", "targets": "center_unit", "status": "confuse", "value": 0.6, "charges": 1, "durationSeconds": 4 }
     ],
-    "visual": { "kind": "burst", "color": "#f59e0b" }
+    "visual": { "kind": "burst", "color": "#f59e0b", "icon": "🗡️" }
   }
 }

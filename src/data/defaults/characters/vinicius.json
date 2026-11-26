@@ -5,8 +5,9 @@
   "description": "Lutador agressivo. Quanto mais machucado, mais rápido bate.",
   "category": "fighter",
   "rarity": "common",
-  "stats": { "health": 7, "damage": 7, "attackSpeed": 5, "range": 1, "mobility": 5 },
+  "stats": { "health": 6, "damage": 7, "attackSpeed": 5, "range": 1, "mobility": 5 },
   "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "attack": { "shape": "semicircle", "maxTargets": 2, "splashDamageFraction": 0.4 },
   "ability": {
     "id": "burnout_fury",
     "name": "Burnout",
@@ -19,6 +20,6 @@
         "behavior": { "id": "missing_health_haste", "maxAttackSpeedBonus": 0.8, "furyBelowFraction": 0.3, "furyDamageBonus": 0.3 }
       }
     ],
-    "visual": { "kind": "none", "color": "#ef4444" }
+    "visual": { "kind": "none", "color": "#ef4444", "icon": "🔥" }
   }
 }

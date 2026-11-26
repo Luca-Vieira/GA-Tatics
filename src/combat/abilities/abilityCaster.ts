@@ -1,7 +1,7 @@
 import type { AbilityDefinition } from '@data/schemas/ability';
 import { hexDistance, type Hex } from '@shared/utils/hex';
 import type { CombatWorld } from '../engine/world';
-import { countsForResult, type CombatUnit } from '../units/unit';
+import { countsForResult, turnTowards, type CombatUnit } from '../units/unit';
 import type { CastContext } from './castContext';
 import { applyAbilityEffects } from './effects';
 
@@ -40,6 +40,7 @@ export function castOnFirstHit(world: CombatWorld, attacker: CombatUnit, target:
 
 function castAbility(world: CombatWorld, cast: CastContext): void {
   const { caster, ability } = cast;
+  turnTowards(caster, cast.center);
   world.emit({
     type: 'ability',
     timeMs: world.nowMs,
@@ -48,6 +49,7 @@ function castAbility(world: CombatWorld, cast: CastContext): void {
     center: cast.center,
     radius: ability.cast.areaRadius,
     visual: ability.visual,
+    facing: caster.facing,
   });
   applyAbilityEffects(world, cast);
 

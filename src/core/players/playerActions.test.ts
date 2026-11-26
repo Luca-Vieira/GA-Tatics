@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_GAME_CONFIG } from '@data/defaults/gameConfig';
 import { cellAt, giveUnit, makeContext, makePlayer, offerShop } from '../testSupport';
 import { buyFromShop, moveUnit, refreshShop, sellUnit, toggleFreezeShopSlot } from './playerActions';
 import { benchUnitsOf, boardUnitsOf } from './playerState';
@@ -43,10 +44,13 @@ describe('compra', () => {
     expect(buyFromShop(player, makeContext(), 7)).toEqual({ ok: false, reason: 'unknown_shop_slot' });
   });
 
+  /** Um personagem diferente por vaga da reserva (6 vagas). */
+  const FULL_BENCH = ['bixo', 'vinicius', 'leo', 'marquinhos', 'derson', 'joao_lucas'];
+
   it('com a reserva cheia, a unidade vai para o tabuleiro se houver vaga', () => {
     const player = makePlayer();
     player.coins = 10;
-    ['bixo', 'vinicius', 'leo'].forEach((id, slot) => giveUnit(player, id, { kind: 'bench', slot }));
+    FULL_BENCH.forEach((id, slot) => giveUnit(player, id, { kind: 'bench', slot }));
     offerShop(player, 'felipao');
     buyFromShop(player, makeContext(1), 0);
     expect(boardUnitsOf(player)).toHaveLength(1);
@@ -55,7 +59,7 @@ describe('compra', () => {
   it('com reserva e tabuleiro cheios (rodada 1 = 3 unidades), a compra é bloqueada', () => {
     const player = makePlayer();
     player.coins = 10;
-    ['bixo', 'vinicius', 'leo'].forEach((id, slot) => giveUnit(player, id, { kind: 'bench', slot }));
+    FULL_BENCH.forEach((id, slot) => giveUnit(player, id, { kind: 'bench', slot }));
     ['felipao', 'matheus', 'wilian'].forEach((id, column) => giveUnit(player, id, { kind: 'board', cell: cellAt(column, 3) }));
     offerShop(player, 'helder');
     expect(buyFromShop(player, makeContext(1), 0)).toEqual({ ok: false, reason: 'no_space' });
@@ -65,9 +69,7 @@ describe('compra', () => {
   it('com tudo cheio, a compra que completa uma fusão é permitida', () => {
     const player = makePlayer();
     player.coins = 10;
-    giveUnit(player, 'bixo', { kind: 'bench', slot: 0 });
-    giveUnit(player, 'bixo', { kind: 'bench', slot: 1 });
-    giveUnit(player, 'leo', { kind: 'bench', slot: 2 });
+    ['bixo', 'bixo', 'leo', 'marquinhos', 'derson', 'joao_lucas'].forEach((id, slot) => giveUnit(player, id, { kind: 'bench', slot }));
     ['felipao', 'matheus', 'wilian'].forEach((id, column) => giveUnit(player, id, { kind: 'board', cell: cellAt(column, 3) }));
     offerShop(player, 'bixo');
     const result = buyFromShop(player, makeContext(1), 0);
@@ -75,7 +77,7 @@ describe('compra', () => {
     const bixos = player.units.filter((unit) => unit.characterId === 'bixo');
     expect(bixos).toHaveLength(1);
     expect(bixos[0]!.starLevel).toBe(2);
-    expect(benchUnitsOf(player)).toHaveLength(2);
+    expect(benchUnitsOf(player)).toHaveLength(5);
   });
 });
 
@@ -139,12 +141,14 @@ describe('venda', () => {
 });
 
 describe('atualizar a loja', () => {
+  const offerSize = DEFAULT_GAME_CONFIG.shop.offerSize;
+
   it('custa 2 moedas e sorteia novas ofertas', () => {
     const player = makePlayer();
     player.coins = 5;
     expect(refreshShop(player, makeContext())).toMatchObject({ ok: true });
     expect(player.coins).toBe(3);
-    expect(player.shop).toHaveLength(3);
+    expect(player.shop).toHaveLength(offerSize);
   });
 
   it('recusa sem moedas', () => {
@@ -165,8 +169,8 @@ describe('posicionamento', () => {
   it('recusa casas da metade adversária e espaços de reserva inexistentes', () => {
     const player = makePlayer();
     const unit = giveUnit(player, 'bixo', { kind: 'bench', slot: 0 });
-    expect(moveUnit(player, makeContext(), unit.id, { kind: 'board', cell: cellAt(2, 5) })).toEqual({ ok: false, reason: 'invalid_destination' });
-    expect(moveUnit(player, makeContext(), unit.id, { kind: 'bench', slot: 3 })).toEqual({ ok: false, reason: 'invalid_destination' });
+    expect(moveUnit(player, makeContext(), unit.id, { kind: 'board', cell: cellAt(2, 6) })).toEqual({ ok: false, reason: 'invalid_destination' });
+    expect(moveUnit(player, makeContext(), unit.id, { kind: 'bench', slot: 6 })).toEqual({ ok: false, reason: 'invalid_destination' });
   });
 
   it('respeita o limite de unidades do tabuleiro', () => {

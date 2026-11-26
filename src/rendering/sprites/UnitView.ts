@@ -2,12 +2,11 @@ import Phaser from 'phaser';
 import type { StatusKind } from '@data/schemas/ability';
 import type { Point } from '@shared/utils/hex';
 import { idleMotion, walkMotion } from '../animations/proceduralMotion';
+import { bySize, isCompactDisplay } from '../layout/displayProfile';
 import { markTransient } from '../particles/transient';
+import { addText } from '../ui/theme';
 import type { SpriteAppearance } from './spriteRegistry';
-
-export const UNIT_BODY_TEXTURE = 'unit-body';
-export const UNIT_BODY_TEXTURE_WIDTH = 48;
-export const UNIT_BODY_TEXTURE_HEIGHT = 64;
+import { BODY_TEXTURE_SCALE, TOWER_BODY_TEXTURE, UNIT_BODY_TEXTURE, UNIT_BODY_TEXTURE_HEIGHT, UNIT_BODY_TEXTURE_WIDTH } from './unitTexture';
 
 /** Efeitos e textos usam profundidades acima de qualquer unidade (a profundidade de uma unidade é a altura dos seus pés na tela). */
 export const FLOATING_TEXT_DEPTH = 20_000;
@@ -16,11 +15,14 @@ export const OVERLAY_DEPTH = 30_000;
 
 const HEALTH_BAR_WIDTH = 46;
 const HEALTH_BAR_HEIGHT = 6;
+const COMPACT_HEALTH_BAR_HEIGHT = 10;
 const SHADOW_WIDTH = 46;
 const SHADOW_HEIGHT = 16;
 /** Fração da altura do corpo em que o "peito" fica; é de onde saem os projéteis. */
 const CHEST_HEIGHT_RATIO = 0.55;
 const STATUS_MARK_SIZE = 7;
+/** Onde fica a letra no tronco do boneco provisório, em relação aos pés e ao meio da textura. */
+const GLYPH_OFFSET = { x: -2, y: -22 };
 
 /** Cor da marca que indica cada estado temporário acima da barra de vida. */
 const STATUS_COLORS: Readonly<Record<StatusKind, number>> = {
@@ -50,8 +52,12 @@ export interface UnitViewOptions {
   readonly showHealthBar?: boolean;
   /** Escala do corpo; permite distinguir tipos de unidade enquanto não existem sprites reais. */
   readonly bodyScale: number;
-  /** Sprite do personagem enviado pelo painel; sem ele (ou se a imagem não carregou), vale a cápsula provisória. */
+  /** Sprite do personagem enviado pelo painel; sem ele (ou se a imagem não carregou), vale o boneco provisório. */
   readonly sprite?: SpriteAppearance;
+  /** Para onde a unidade começa olhando. Padrão: direita. */
+  readonly facingRight?: boolean;
+  /** Desenho provisório de torre (sem letra), no lugar do boneco. */
+  readonly isTower?: boolean;
   /** Escala de perspectiva para uma unidade com os pés em determinada altura da tela. */
   readonly perspectiveScaleAt: (groundY: number) => number;
 }
@@ -70,6 +76,10 @@ export class UnitView {
   private readonly lunger: Phaser.GameObjects.Container;
   private readonly shaker: Phaser.GameObjects.Container;
   private readonly sprite: Phaser.GameObjects.Image;
+  private readonly glyph: Phaser.GameObjects.Text | null = null;
+  private readonly customSprite: SpriteAppearance | undefined;
+  private readonly bodyScale: number;
+  private facingRight = true;
   private readonly nameLabel: Phaser.GameObjects.Text;
   private readonly starLabel: Phaser.GameObjects.Text;
   private readonly selectionRing: Phaser.GameObjects.Graphics;
@@ -97,8 +107,10 @@ export class UnitView {
     this.color = options.color;
     this.perspectiveScaleAt = options.perspectiveScaleAt;
     const customSprite = options.sprite && scene.textures.exists(options.sprite.textureKey) ? options.sprite : undefined;
+    this.customSprite = customSprite;
+    this.bodyScale = options.bodyScale;
     this.hasCustomSprite = customSprite !== undefined;
-    // A altura da imagem é ajustada à da cápsula (e depois pela escala do painel), qualquer que seja o tamanho do arquivo.
+    // A altura da imagem é ajustada à do boneco provisório (e depois pela escala do painel), qualquer que seja o tamanho do arquivo.
     const sourceImage = customSprite ? scene.textures.get(customSprite.textureKey).getSourceImage() : null;
     const fit = customSprite && sourceImage ? (UNIT_BODY_TEXTURE_HEIGHT / sourceImage.height) * customSprite.scale : 1;
     this.bodyHeight = sourceImage ? sourceImage.height * fit * options.bodyScale : UNIT_BODY_TEXTURE_HEIGHT * options.bodyScale;
@@ -125,12 +137,21 @@ export class UnitView {
           .image(customSprite.offsetX * options.bodyScale, customSprite.offsetY * options.bodyScale, customSprite.textureKey)
           .setOrigin(customSprite.anchorX, customSprite.anchorY)
           .setScale(options.bodyScale * fit)
-      : scene.add.image(0, 0, UNIT_BODY_TEXTURE).setOrigin(0.5, 1).setTint(options.color).setScale(options.bodyScale);
+      : scene.add
+          .image(0, 0, options.isTower ? TOWER_BODY_TEXTURE : UNIT_BODY_TEXTURE)
+          .setOrigin(0.5, 1)
+          .setTint(options.color)
+          .setScale(options.bodyScale / BODY_TEXTURE_SCALE);
     const bodyParts: Phaser.GameObjects.GameObject[] = [this.sprite];
-    if (!customSprite) {
-      bodyParts.push(
-        scene.add.text(0, -this.bodyHeight / 2, options.glyph, { fontFamily: 'Arial', fontSize: '24px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5),
-      );
+    if (!customSprite && !options.isTower) {
+      this.glyph = addText(scene, GLYPH_OFFSET.x * options.bodyScale, GLYPH_OFFSET.y * options.bodyScale, options.glyph, {
+        fontSize: `${Math.round(18 * options.bodyScale)}px`,
+        color: '#ffffff',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5);
+      bodyParts.push(this.glyph);
     }
     // Cada movimento temporário tem seu próprio contêiner, para tweens simultâneos (avanço e tremor) não se atrapalharem.
     this.shaker = scene.add.container(0, 0, bodyParts);
@@ -138,12 +159,16 @@ export class UnitView {
     this.body = scene.add.container(0, 0, [this.lunger]);
     this.healthBar = scene.add.graphics();
     this.statusMarks = scene.add.graphics();
-    this.nameLabel = scene.add
-      .text(0, 9, options.displayName, { fontFamily: 'Arial', fontSize: '12px', color: '#e5e7eb', stroke: '#000000', strokeThickness: 3 })
-      .setOrigin(0.5, 0);
-    this.starLabel = scene.add
-      .text(0, 22, '★'.repeat(Math.max(0, Math.min(3, options.starLevel ?? 0))), { fontFamily: 'Arial', fontSize: '12px', color: '#fbbf24', stroke: '#000000', strokeThickness: 3 })
-      .setOrigin(0.5, 0);
+    // No modo compacto o nome some (o boneco tem a inicial, e tocar mostra os detalhes); sobram as estrelas, maiores.
+    this.nameLabel = addText(scene, 0, 7, options.displayName, { fontSize: '13px', color: '#e5e7eb', stroke: '#000000', strokeThickness: 3 })
+      .setOrigin(0.5, 0)
+      .setVisible(!isCompactDisplay());
+    this.starLabel = addText(scene, 0, bySize(20, 5), '★'.repeat(Math.max(0, Math.min(3, options.starLevel ?? 0))), {
+      fontSize: bySize('12px', '19px'),
+      color: '#fbbf24',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5, 0);
 
     this.root = scene.add.container(options.groundPosition.x, options.groundPosition.y, [
       this.shadow,
@@ -154,8 +179,32 @@ export class UnitView {
       this.healthBar,
       this.statusMarks,
     ]);
+    this.setFacingRight(options.facingRight ?? true);
     this.applyPerspective();
     this.drawHealthBar();
+  }
+
+  get isFacingRight(): boolean {
+    return this.facingRight;
+  }
+
+  /**
+   * Vira a unidade só espelhando na horizontal (sem girar). A arte olha para a direita; virada para a esquerda, a imagem
+   * é espelhada em torno do ponto dos pés, então a âncora e o deslocamento horizontal também se invertem.
+   */
+  setFacingRight(isFacingRight: boolean): void {
+    if (this.dead || isFacingRight === this.facingRight) {
+      return;
+    }
+    this.facingRight = isFacingRight;
+    this.sprite.setFlipX(!isFacingRight);
+    const direction = isFacingRight ? 1 : -1;
+    if (this.customSprite) {
+      const anchorX = isFacingRight ? this.customSprite.anchorX : 1 - this.customSprite.anchorX;
+      this.sprite.setOrigin(anchorX, this.customSprite.anchorY);
+      this.sprite.setX(direction * this.customSprite.offsetX * this.bodyScale);
+    }
+    this.glyph?.setX(direction * GLYPH_OFFSET.x * this.bodyScale);
   }
 
   get isDead(): boolean {
@@ -197,7 +246,9 @@ export class UnitView {
 
   /** Anel branco no chão que marca a unidade selecionada. */
   setSelected(isSelected: boolean): void {
-    this.selectionRing.setVisible(isSelected);
+    if (!this.dead) {
+      this.selectionRing.setVisible(isSelected);
+    }
   }
 
   /** Leva a unidade direto para o ponto (sem animação); usado ao arrastar e ao reorganizar a preparação. */
@@ -274,8 +325,7 @@ export class UnitView {
 
   showFloatingText(text: string, color: string): void {
     const headY = this.root.y - this.bodyHeight * this.perspectiveScale - 14;
-    const floating = this.scene.add
-      .text(this.root.x, headY, text, { fontFamily: 'Arial', fontSize: '18px', color, fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 })
+    const floating = addText(this.scene, this.root.x, headY, text, { fontSize: bySize('19px', '28px'), color, fontStyle: 'bold', stroke: '#000000', strokeThickness: 3 })
       .setOrigin(0.5)
       .setDepth(FLOATING_TEXT_DEPTH);
     markTransient(floating);
@@ -288,6 +338,14 @@ export class UnitView {
     } else {
       this.activeStatuses.delete(status);
     }
+    this.drawStatusMarks();
+  }
+
+  /** Mostra vida e estados sem animação (ao entrar num combate já em andamento). */
+  showState(healthRatio: number, statuses: readonly StatusKind[]): void {
+    this.setHealthRatio(healthRatio);
+    this.activeStatuses.clear();
+    statuses.forEach((status) => this.activeStatuses.add(status));
     this.drawStatusMarks();
   }
 
@@ -346,10 +404,11 @@ export class UnitView {
     if (!this.showHealthBar) {
       return;
     }
+    const barHeight = bySize(HEALTH_BAR_HEIGHT, COMPACT_HEALTH_BAR_HEIGHT);
     this.healthBar.fillStyle(0x000000, 0.6);
-    this.healthBar.fillRect(-HEALTH_BAR_WIDTH / 2 - 1, -1, HEALTH_BAR_WIDTH + 2, HEALTH_BAR_HEIGHT + 2);
+    this.healthBar.fillRect(-HEALTH_BAR_WIDTH / 2 - 1, -1, HEALTH_BAR_WIDTH + 2, barHeight + 2);
     this.healthBar.fillStyle(this.healthRatio > 0.35 ? 0x4ade80 : 0xef4444, 1);
-    this.healthBar.fillRect(-HEALTH_BAR_WIDTH / 2, 0, HEALTH_BAR_WIDTH * this.healthRatio, HEALTH_BAR_HEIGHT);
+    this.healthBar.fillRect(-HEALTH_BAR_WIDTH / 2, 0, HEALTH_BAR_WIDTH * this.healthRatio, barHeight);
   }
 
   /** Uma marca colorida por estado ativo, em fila centralizada acima da barra de vida. */

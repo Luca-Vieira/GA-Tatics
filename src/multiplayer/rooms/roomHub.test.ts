@@ -26,7 +26,7 @@ describe('mensagens do saguão', () => {
 
   it('criar sala: visibilidade pública e regras normais por padrão', () => {
     const result = parse({ type: 'create_room', playerName: 'Ana' });
-    expect(result).toEqual({ ok: true, message: { type: 'create_room', playerName: 'Ana', visibility: 'public', modifiers: NO_ROOM_MODIFIERS } });
+    expect(result).toEqual({ ok: true, message: { type: 'create_room', playerName: 'Ana', visibility: 'public', modifiers: NO_ROOM_MODIFIERS, maximumPlayers: 4 } });
   });
 
   it('aceita sala privada com senha e regras especiais; recusa regras fora do teto e campos desconhecidos', () => {

@@ -30,7 +30,8 @@ export type ActionFailure =
   | 'unit_not_found'
   | 'invalid_destination'
   | 'board_full'
-  | 'tower_limit';
+  | 'tower_limit'
+  | 'spectator';
 
 export type ActionResult = { readonly ok: true; readonly fusions: readonly FusionResult[] } | { readonly ok: false; readonly reason: ActionFailure };
 

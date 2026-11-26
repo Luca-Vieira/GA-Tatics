@@ -13,14 +13,15 @@ export function castLShapedProjectile(world: CombatWorld, cast: CastContext, beh
   }
   const baseDamage = caster.stats.damage * computeOutgoingDamageMultiplier(caster);
 
-  world.emit({ type: 'projectile', timeMs: world.nowMs, fromId: caster.id, toId: primary.id });
+  const icon = cast.ability.visual.projectileIcon;
+  world.emit({ type: 'projectile', timeMs: world.nowMs, fromId: caster.id, toId: primary.id, icon });
   world.dealDamage(caster, primary, baseDamage * behavior.primaryMultiplier, { cause: 'ability' });
 
   const secondary = findClosestEnemyTo(world, caster, primary, behavior.redirectRange);
   if (!secondary) {
     return;
   }
-  world.emit({ type: 'projectile', timeMs: world.nowMs, fromId: primary.id, toId: secondary.id });
+  world.emit({ type: 'projectile', timeMs: world.nowMs, fromId: primary.id, toId: secondary.id, icon });
   world.dealDamage(caster, secondary, baseDamage * behavior.secondaryMultiplier, { cause: 'ability' });
 }
 

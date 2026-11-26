@@ -268,3 +268,56 @@ Pedido do dono: ver as salas abertas, ter partida rápida, criar sala privada ou
 - **Padrões do compose:** `TRUST_PROXY=1`; `ALLOWED_ORIGINS` vazio libera `https://<SITE_DOMAIN>`.
 - **Guia:** `docs/hospedagem-do-servidor.md`, com diagnóstico só de leitura, cuidados para não afetar o outro projeto, configuração para nginx, Caddy, Apache e proxy em contêiner, e teste sem subdomínio.
 
+## 21. Melhorias de 25/11/2026 (documento de requisitos do dono)
+
+Onde esta seção contraria uma anterior (tabuleiro, tempo de combate, loja, reserva, sinergias, torre, resolução), vale esta.
+
+### Torre
+- **Causa do bug:** um lado só com a torre contava como eliminado e o combate acabava em 0 ms; por isso a torre como primeira compra tirava vida e ficava intacta. Agora o combate acaba quando um lado não tem lutadores nem torre, ou quando nenhum lado tem lutadores. A torre continua fora do cálculo do vencedor.
+- **Compensação:** +2 moedas (`config.tower.compensationOnLoss`) por torre destruída, pagas uma vez no início da **rodada** seguinte, mesmo acima do teto de moedas; quem é eliminado não recebe. "Próxima partida", no pedido, foi lido como próxima rodada: as partidas não guardam nada de uma para a outra.
+
+### Tabuleiro, alvo e ataque
+- **Tabuleiro 12×5** (30 casas por lado). As coordenadas lógicas continuam as mesmas (linhas = eixo da batalha); a tela gira 90° (hexágonos "flat-top"), com quem vê à esquerda. Velocidade `0,8 + 0,3·mobilidade` e limite de combate de 35 s.
+- **Alvo:** sem caminho até o alvo (causa de gente parada), a unidade tenta outro alcançável e, se não houver, chega o mais perto possível. Com o alvo fora da área e outro dentro, troca (quem usa `farthest` só depois de alcançar o alvo). O recuo só acontece com o alvo na área. Prioridades: `nearest`, `farthest`, `lowest_health`, `cluster`.
+- **Área de ataque** (`attack` no personagem; funções em `src/shared/utils/attackArea.ts`): círculo, faixa frontal, diagonais, semicírculo, foice e tracejada (só distâncias ímpares), simétricas entre os lados. Com mais de um alvo, os extras levam 50% do dano, salvo outro valor. Áreas menores para quase todos; os valores estão nos JSON de `src/data/defaults/characters/`. Os raios das habilidades não mudaram.
+- **Gustavo:** invoca 2 cavalos direto (efeito `summon`) por 6 s; dano deles 3→2; recarga 13→15. `place_trap` continua disponível no painel.
+- **Sinergias:** Operacional 5→4% e 9→8% de resistência; Caos 6→5% e 12→9% de dano, 4→3% e 8→5% de velocidade de ataque.
+- **Medido** (5 unidades, 4000 combates): média de 20,9 s, 4,3% de estouro de tempo, vitórias por personagem de 42,1% (Moço) a 56,5% (Felipão). 200 partidas de 4 bots: média de 7 rodadas.
+
+### Loja, bots e número de jogadores
+- Loja com 5 ofertas, reserva com 6 vagas, chance de torre 6% por vaga. Os bots priorizam cópias e depois a ordem da loja; só compram personagem novo até o limite do tabuleiro (podem passar em um).
+- Partidas de **2 a 8 jogadores** (sala e partida local). A partida rápida prefere salas com regras normais e 4 jogadores. Conexões no servidor: 64→96; salas: 16.
+
+### Sair, assistir e encerrar (protocolo 4)
+- **Sair** pede confirmação. Em rede, sair ou cair faz a vaga virar bot com as mesmas vidas, moedas e unidades; o anfitrião passa o cargo; sem nenhuma pessoa, a sala fecha. Contra bots, sair encerra a partida.
+- **Espectador:** até 8 por sala, sem ocupar vaga; sala privada pede código (e senha). Não recebe loja, moedas, reserva, tabuleiro em montagem nem o próximo adversário, e o servidor recusa qualquer ação. **Brecha aceita por ora:** um jogador pode abrir outra aba e assistir à própria sala para ver os outros duelos.
+- **Painel:** a aba "Em andamento" lista e encerra salas (`GET /api/admin/activities`, `POST /api/admin/activities/<código>/end`).
+- **Loja em rede:** o servidor só espera os duelos que alguém está vendo (pessoa ou espectador), com mínimo de 3 s (`MINIMUM_COMBAT_PHASE_MS`); combate só entre bots não atrasa a rodada. Quem troca de jogador assistido para um duelo mais longo pode ver o resultado antes do fim da animação.
+
+### Tela, resolução e celular
+- **Resolução (causa):** o canvas era sempre 1280×720 e o navegador o esticava. As cenas seguem em 1280×720, o canvas é criado com escala de 1 a 2 (tela × densidade) e a câmera aproxima na mesma proporção.
+- **Demora da loja (causas):** ofertas antigas ficavam na tela até a rodada seguinte (agora a loja aparece fechada); o `preload` segurava a cena até baixar os sprites (agora em segundo plano); redesenho de texto a cada atualização; e a espera por combates de bots em rede (acima).
+- **Sprites de perfil:** a arte enviada deve olhar para a **direita**; o jogo só espelha na horizontal, conforme o alvo.
+- **Celular:** toque curto compra, segurar (380 ms) mostra detalhes, tocar na unidade e na casa move; em pé, em tela de toque de até 900 px, aparece o aviso para girar. O saguão é HTML próprio, sem depender do tamanho do canvas.
+- **Consulta no combate:** tocar num personagem abre o painel ao vivo e destaca a área.
+
+### Galeria, painel e áudio
+- **"Personagens" no saguão:** galeria em HTML com filtro, ordenação, comparação lado a lado e desenho da área de ataque.
+- **Ícones:** `ability.visual.icon` e `projectileIcon` (texto ou emoji; João Lucas usa "L"). Projéteis não têm imagem própria.
+- **Sprites auxiliares** (`auxiliarySprites`: torre, cavalo, protagonista e outras invocações) e **ajuste manual** (posição, escala, âncoras, prévia) na aba "Sprites e ícones"; valem depois de publicar e persistem no servidor.
+- **Áudio** sintetizado com Web Audio (sem arquivos), música e efeitos com volume e liga/desliga separados, salvos no navegador.
+
+## 22. Ajustes depois do primeiro teste da Seção 21
+
+Onde esta seção contraria a 21, vale esta.
+
+- **Velocidade do combate:** volta a ser só o texto "Velocidade 1x · [S] muda" (sem botão); no celular ele não aparece.
+- **Camadas:** áreas de ataque, anéis e explosões de habilidade são desenhados entre o chão e os personagens. Projéteis, chuva, números e nomes continuam por cima.
+- **Orientação dos ataques:** todos viram para a frente ou para trás conforme o alvo. A **foice** também varre para cima ou para baixo, pelo lado em que o alvo está (`AttackSweep`, em `attackArea.ts`); na mesma altura mantém o lado anterior. Na preparação, a foice aparece para cima. Os formatos **não giram** para apontar reto para cima ou para baixo: os sprites só olham para os lados, e girar em todas as direções afrouxaria as áreas.
+  - Efeito no alcance: contando os dois lados da varredura, a foice alcança tudo à frente e na mesma linha lógica; o que continua restrito é quem mais ela acerta em cada golpe.
+- **Matheus:** formato novo `dashed_center`, a área tracejada mais a casa central (2 casas em linha reta à frente). O pedido foi lido como essa casa que faltava no desenho; o veneno continua vindo da habilidade. O Moço mantém a tracejada comum.
+- **Rodízio de sinergias:** a cada 1 dia (era 2).
+- **Equilíbrio** (6000 combates, 5 unidades): 4,6% de estouro de tempo; Wender 57,6% (perto do teto de 58%), Matheus 53,3%, Derson 46,8%, Moço 42,1% (perto do piso). O teste de lugares na mesa passou de 80 para 300 partidas, sem mudar a faixa: com 80 o acaso levava o 1º lugar a 41%; em 600 partidas ele fica entre 29% e 33%, acima dos 25% ideais.
+- **Nitidez (causa):** a resolução era calculada pela tela inteira; numa janela de 1536×730 o canvas tinha 1920×1080 e o navegador reduzia 1,48 vez. Agora o canvas tem os mesmos pixels que o jogo ocupa na janela (escala de 0,5 a 3), acompanha o redimensionamento e redesenha os textos. A textura do boneco passou de 3× para 2×.
+- **Modo compacto** (menos de 0,72 pixel CSS por unidade de tela: celulares): letras maiores; as cartas mostram só nome, sinergia e preço; sinergias mostram nome e contagem; o placar mostra só o nome da fase; sob o boneco ficam só as estrelas; o painel de detalhes esconde bônus de sinergia, comportamento e recarga e resume a área ao nome do formato. O modo é escolhido quando a partida começa.
+

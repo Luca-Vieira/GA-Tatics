@@ -1,4 +1,5 @@
 import { validateGameContent, type GameContent } from '@data/schemas/content';
+import type { LiveActivity } from '@multiplayer/host/liveActivities';
 
 export interface PublishedContent {
   readonly version: number;
@@ -92,11 +93,47 @@ export class AdminClient {
     return { ok: false, kind: 'failed', message: `O servidor não aceitou a publicação (${response.status}).`, issues: [] };
   }
 
-  /** Envia o PNG de um personagem e devolve o caminho público do arquivo no servidor. */
-  async uploadSprite(characterId: string, png: Uint8Array): Promise<string> {
+  /** Salas em espera ou em jogo no servidor. */
+  async fetchActivities(): Promise<readonly LiveActivity[]> {
+    const response = await this.send('GET', '/api/admin/activities', undefined);
+    const body = (await response.json().catch(() => ({}))) as { activities?: unknown };
+    if (response.status === 200 && Array.isArray(body.activities)) {
+      return body.activities as LiveActivity[];
+    }
+    throw this.activityErrorOf(response.status);
+  }
+
+  /** Encerra a sala. Devolve falso se ela já não existia. */
+  async endActivity(roomCode: string): Promise<boolean> {
+    const response = await this.send('POST', `/api/admin/activities/${encodeURIComponent(roomCode)}/end`, undefined);
+    if (response.status === 200) {
+      return true;
+    }
+    if (response.status === 404) {
+      const body = (await response.json().catch(() => ({}))) as { error?: unknown };
+      if (body.error === 'activity_not_found') {
+        return false;
+      }
+    }
+    throw this.activityErrorOf(response.status);
+  }
+
+  private activityErrorOf(status: number): AdminRequestError {
+    if (status === 401) {
+      this.token = null;
+      return new AdminRequestError('A sessão expirou. Entre de novo.', 'unauthorized');
+    }
+    if (status === 404 || status === 501) {
+      return new AdminRequestError('Este servidor não permite ver nem encerrar as salas em andamento. Confira se ele está atualizado.', 'failed');
+    }
+    return new AdminRequestError(`O servidor não atendeu ao pedido (${status}).`, 'failed');
+  }
+
+  /** Envia o PNG de um personagem ou de um sprite auxiliar e devolve o caminho público do arquivo no servidor. */
+  async uploadSprite(spriteId: string, png: Uint8Array): Promise<string> {
     let response: Response;
     try {
-      response = await this.fetcher(`${this.baseUrl}/api/admin/sprites/${encodeURIComponent(characterId)}`, {
+      response = await this.fetcher(`${this.baseUrl}/api/admin/sprites/${encodeURIComponent(spriteId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'image/png', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
         body: png as BodyInit,

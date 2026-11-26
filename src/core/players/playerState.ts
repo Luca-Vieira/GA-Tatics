@@ -26,7 +26,8 @@ export interface ShopSlot {
 export interface PlayerState {
   readonly id: string;
   readonly name: string;
-  readonly isBot: boolean;
+  /** Muda só quando quem joga abandona a partida e um bot assume a vaga. */
+  isBot: boolean;
   lives: number;
   coins: number;
   units: OwnedUnit[];

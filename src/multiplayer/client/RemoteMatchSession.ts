@@ -1,12 +1,29 @@
-import type { HumanDuel, MatchSession, RoundResultDuel, RoundResultSummary, SessionListener, SpriteSource } from '@core/game/MatchSession';
+import type { HumanDuel, MatchSession, RoundResultDuel, RoundResultSummary, SessionListener, SpectatorControls, SpriteSource } from '@core/game/MatchSession';
 import type { UnitLocation } from '@core/players/playerState';
 import type { CombatResult } from '@combat/engine/result';
 import type { GameContent } from '@data/schemas/content';
-import type { ServerMessage } from '../protocol/serverMessages';
+import type { ClientMessage } from '../protocol/clientMessages';
+import type { MatchSetupView, ServerMessage } from '../protocol/serverMessages';
 import type { ServerConnection } from './ServerConnection';
 import { RemoteMatchState } from './RemoteMatchState';
+import { spriteSourcesOf } from './spriteSources';
 
 type Message<Type extends ServerMessage['type']> = Extract<ServerMessage, { type: Type }>;
+
+export interface RemoteSessionOptions {
+  /** Quem só assiste: `humanId` é o jogador acompanhado e nenhuma ação é enviada. */
+  readonly isSpectator?: boolean;
+  /** Como sair da sala (o saguão também precisa esquecer a sala); sem isto, só avisa o servidor. */
+  readonly leaveRoom?: () => void;
+  readonly nowMs?: () => number;
+}
+
+/** Combate que chegou antes de a cena existir. */
+interface PendingCombat {
+  readonly duel: HumanDuel | null;
+  readonly elapsedMs: number;
+  readonly receivedAtMs: number;
+}
 
 const NO_LISTENER: SessionListener = {
   preparationStarted: () => undefined,
@@ -20,8 +37,8 @@ const NO_LISTENER: SessionListener = {
 };
 
 /**
- * Partida em rede, do ponto de vista de um jogador. O servidor é a única fonte da verdade: esta classe só envia as
- * intenções do jogador (comprar, mover, vender, ficar pronto) e aplica ao espelho local o que o servidor responde.
+ * Partida em rede, do ponto de vista de um jogador (ou de quem assiste). O servidor é a única fonte da verdade: esta
+ * classe só envia as intenções (comprar, mover, vender, ficar pronto) e aplica ao espelho local o que o servidor responde.
  *
  * Mensagens que chegam antes de a cena existir (o servidor começa a rodada logo após `match_started`) ficam
  * guardadas no estado e são reapresentadas quando a cena chama `start()`.
@@ -30,44 +47,42 @@ export class RemoteMatchSession implements MatchSession {
   readonly match: RemoteMatchState;
   readonly spriteSources: readonly SpriteSource[];
   readonly roomRules: readonly string[];
+  readonly spectator: SpectatorControls | null;
 
   private listener: SessionListener = NO_LISTENER;
   private isStarted = false;
   private hasRound = false;
+  private hasMatchEnded = false;
+  private pendingCombat: PendingCombat | null = null;
+  private currentHumanId: string;
   private preparationEndsAtMs = 0;
   /** Quanto o relógio do servidor está adiantado em relação ao nosso (servidor − cliente). */
   private clockOffsetMs = 0;
   private humanDuelResult: { readonly topId: string; readonly bottomId: string; readonly result: CombatResult } | null = null;
+  private readonly nowMs: () => number;
   private readonly stopListening: () => void;
   private readonly stopListeningForClose: () => void;
 
   constructor(
     private readonly connection: ServerConnection,
-    readonly humanId: string,
-    started: Message<'match_started'>,
+    humanId: string,
+    setup: MatchSetupView,
     content: GameContent,
     spriteBaseUrl: string,
-    private readonly nowMs: () => number = Date.now,
+    private readonly options: RemoteSessionOptions = {},
   ) {
-    this.match = new RemoteMatchState(humanId, started, content);
+    this.currentHumanId = humanId;
+    this.nowMs = options.nowMs ?? Date.now;
+    this.match = new RemoteMatchState(humanId, setup, content);
     this.roomRules = this.match.roomRules;
-    this.spriteSources = content.characters.flatMap((character) =>
-      character.sprite
-        ? [
-            {
-              characterId: character.id,
-              url: `${spriteBaseUrl}${character.sprite.path}`,
-              scale: character.sprite.scale,
-              offsetX: character.sprite.offsetX,
-              offsetY: character.sprite.offsetY,
-              anchorX: character.sprite.anchorX,
-              anchorY: character.sprite.anchorY,
-            },
-          ]
-        : [],
-    );
+    this.spriteSources = spriteSourcesOf(content, spriteBaseUrl);
+    this.spectator = options.isSpectator ? this.createSpectatorControls() : null;
     this.stopListening = connection.onMessage((message) => this.handle(message));
     this.stopListeningForClose = connection.onClose(() => this.listener.connectionLost());
+  }
+
+  get humanId(): string {
+    return this.currentHumanId;
   }
 
   get preparationRemainingMs(): number {
@@ -83,6 +98,10 @@ export class RemoteMatchSession implements MatchSession {
     if (this.hasRound) {
       this.listener.preparationStarted();
     }
+    this.replayPendingCombat();
+    if (this.hasMatchEnded) {
+      this.listener.matchEnded();
+    }
   }
 
   /** O relógio da preparação vem do servidor; não há nada a contar aqui. */
@@ -91,27 +110,27 @@ export class RemoteMatchSession implements MatchSession {
   // --- Intenções do jogador -----------------------------------------------------------------------
 
   buy(shopSlot: number): void {
-    this.connection.send({ type: 'buy', shopSlot });
+    this.sendIntent({ type: 'buy', shopSlot });
   }
 
   refreshShop(): void {
-    this.connection.send({ type: 'refresh_shop' });
+    this.sendIntent({ type: 'refresh_shop' });
   }
 
   toggleFreeze(shopSlot: number): void {
-    this.connection.send({ type: 'toggle_freeze', shopSlot });
+    this.sendIntent({ type: 'toggle_freeze', shopSlot });
   }
 
   sell(unitId: string): void {
-    this.connection.send({ type: 'sell', unitId });
+    this.sendIntent({ type: 'sell', unitId });
   }
 
   move(unitId: string, destination: UnitLocation): void {
-    this.connection.send({ type: 'move', unitId, destination });
+    this.sendIntent({ type: 'move', unitId, destination });
   }
 
   setReady(isReady: boolean): void {
-    this.connection.send({ type: 'set_ready', ready: isReady });
+    this.sendIntent({ type: 'set_ready', ready: isReady });
   }
 
   /** O servidor espera o combate mais longo da rodada e então envia o resultado; a cena só precisa esperá-lo. */
@@ -120,10 +139,53 @@ export class RemoteMatchSession implements MatchSession {
   /** A próxima rodada começa quando o servidor avisar. */
   continueAfterResult(): void {}
 
+  /** Sai da sala: para quem joga, um bot assume a vaga; para quem assiste, só deixa de assistir. */
+  leave(): void {
+    this.dispose();
+    if (this.options.leaveRoom) {
+      this.options.leaveRoom();
+      return;
+    }
+    this.connection.send({ type: 'leave_room' });
+  }
+
   dispose(): void {
     this.stopListening();
     this.stopListeningForClose();
     this.listener = NO_LISTENER;
+  }
+
+  // --- Apoio --------------------------------------------------------------------------------------
+
+  private sendIntent(message: ClientMessage): void {
+    if (this.spectator) {
+      this.listener.actionFailed('spectator');
+      return;
+    }
+    this.connection.send(message);
+  }
+
+  private createSpectatorControls(): SpectatorControls {
+    const watchedId = () => this.humanId;
+    return {
+      get watchedPlayerId() {
+        return watchedId();
+      },
+      watch: (playerId: string) => {
+        if (playerId !== watchedId()) {
+          this.connection.send({ type: 'watch_player', playerId });
+        }
+      },
+    };
+  }
+
+  private replayPendingCombat(): void {
+    const pending = this.pendingCombat;
+    this.pendingCombat = null;
+    if (pending) {
+      const elapsedMs = pending.elapsedMs + (this.nowMs() - pending.receivedAtMs);
+      this.listener.combatStarted(pending.duel ? { ...pending.duel, elapsedMs } : null);
+    }
   }
 
   // --- Mensagens do servidor ----------------------------------------------------------------------
@@ -137,6 +199,16 @@ export class RemoteMatchSession implements MatchSession {
         this.match.applyOwnView(message.view);
         this.listener.stateChanged();
         return;
+      case 'players_updated':
+        this.match.applyPublicPlayers(message.players);
+        this.listener.stateChanged();
+        return;
+      case 'watching':
+        // O retrato da partida na visão desse jogador vem logo em seguida (rodada e, se houver, o combate).
+        this.currentHumanId = message.playerId;
+        this.match.watch(message.playerId);
+        this.humanDuelResult = null;
+        return;
       case 'action_result':
         this.reportAction(message);
         return;
@@ -147,6 +219,7 @@ export class RemoteMatchSession implements MatchSession {
         this.concludeRound(message);
         return;
       case 'match_ended':
+        this.hasMatchEnded = true;
         this.match.applyMatchEnded(message);
         this.listener.matchEnded();
         return;
@@ -156,11 +229,15 @@ export class RemoteMatchSession implements MatchSession {
   }
 
   private beginRound(message: Message<'round_started'>): void {
+    if (this.spectator) {
+      this.match.clearBoards();
+    }
     this.match.applyRoundStarted(message);
     this.clockOffsetMs = message.serverTimeMs - this.nowMs();
     this.preparationEndsAtMs = message.preparationEndsAtMs;
     this.hasRound = true;
     this.humanDuelResult = null;
+    this.pendingCombat = null;
     if (this.isStarted) {
       this.listener.preparationStarted();
     }
@@ -179,11 +256,19 @@ export class RemoteMatchSession implements MatchSession {
   private startCombat(message: Message<'combat_started'>): void {
     const duel = message.duel;
     this.humanDuelResult = duel ? { topId: duel.topId, bottomId: duel.bottomId, result: duel.result } : null;
+    if (this.spectator && duel) {
+      this.match.showWatchedBoard(duel);
+    }
     const humanDuel: HumanDuel | null = duel ? { topId: duel.topId, bottomId: duel.bottomId, combatConfig: duel.combatConfig } : null;
-    this.listener.combatStarted(humanDuel);
+    if (!this.isStarted) {
+      this.pendingCombat = { duel: humanDuel, elapsedMs: message.elapsedMs ?? 0, receivedAtMs: this.nowMs() };
+      return;
+    }
+    this.listener.combatStarted(humanDuel && message.elapsedMs !== undefined ? { ...humanDuel, elapsedMs: message.elapsedMs } : humanDuel);
   }
 
   private concludeRound(message: Message<'round_result'>): void {
+    this.pendingCombat = null;
     this.match.applyPublicPlayers(message.players);
     const duels = message.duels.map((outcome): RoundResultDuel => {
       const ownDuel = this.humanDuelResult;

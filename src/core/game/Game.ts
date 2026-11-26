@@ -18,6 +18,9 @@ import { buildTowerCharacter, isTowerId, towerIncomeOf } from '../tower/tower';
 
 export type GamePhase = 'preparation' | 'combat' | 'result' | 'finished';
 
+export const MINIMUM_PLAYERS = 2;
+export const MAXIMUM_PLAYERS = 8;
+
 export interface GamePlayerInput {
   readonly id: string;
   readonly name: string;
@@ -94,14 +97,16 @@ export class Game {
   private readonly shopRandomByPlayer = new Map<string, SeededRandom>();
   private readonly towerRandomByPlayer = new Map<string, SeededRandom>();
   private readonly history: RoundRecord[] = [];
+  /** Moedas por torres destruídas ainda não pagas; saem daqui no início da rodada seguinte, uma única vez. */
+  private readonly towerCompensationByPlayer = new Map<string, number>();
   private currentPhase: GamePhase = 'preparation';
   private currentRound = 0;
   private currentPairings: RoundPairings = { pairs: [], resting: null };
   private pendingDuels: Duel[] = [];
 
   constructor(options: GameOptions) {
-    if (options.players.length < 2) {
-      throw new Error('A partida precisa de ao menos dois jogadores.');
+    if (options.players.length < MINIMUM_PLAYERS || options.players.length > MAXIMUM_PLAYERS) {
+      throw new Error(`A partida precisa de ${MINIMUM_PLAYERS} a ${MAXIMUM_PLAYERS} jogadores.`);
     }
     this.seed = options.seed;
     this.roster = options.roster;
@@ -233,6 +238,11 @@ export class Game {
     }
   }
 
+  /** Quem abandona a partida passa a ser controlado como bot: mantém vidas, moedas, unidades e a vaga na tabela. */
+  convertToBot(playerId: string): void {
+    this.getPlayer(playerId).isBot = true;
+  }
+
   get everyoneIsReady(): boolean {
     return this.alivePlayers.every((player) => player.ready);
   }
@@ -305,12 +315,18 @@ export class Game {
       this.history,
     );
     for (const player of this.alivePlayers) {
-      player.coins = coinsAtRoundStart(this.config.economy, player.coins, this.currentRound) + towerIncomeOf(player, this.config.tower);
+      player.coins = coinsAtRoundStart(this.config.economy, player.coins, this.currentRound) + towerIncomeOf(player, this.config.tower) + this.collectTowerCompensation(player.id);
       player.ready = false;
       this.shopRandomByPlayer.set(player.id, new SeededRandom(`${this.seed}:shop:${player.id}:${this.currentRound}`));
       this.towerRandomByPlayer.set(player.id, new SeededRandom(`${this.seed}:tower:${player.id}:${this.currentRound}`));
       refillShop(player, this.actionContextOf(player));
     }
+  }
+
+  private collectTowerCompensation(playerId: string): number {
+    const coins = this.towerCompensationByPlayer.get(playerId) ?? 0;
+    this.towerCompensationByPlayer.delete(playerId);
+    return coins;
   }
 
   private combatSetupContext(): CombatSetupContext {
@@ -350,6 +366,8 @@ export class Game {
         if (lostTowers.length > 0) {
           player.units = player.units.filter((unit) => !lostTowers.includes(unit));
           lostByPlayerId[playerId] = (lostByPlayerId[playerId] ?? 0) + lostTowers.length;
+          const compensation = lostTowers.length * this.config.tower.compensationOnLoss;
+          this.towerCompensationByPlayer.set(playerId, (this.towerCompensationByPlayer.get(playerId) ?? 0) + compensation);
         }
       }
     }

@@ -10,7 +10,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
     interestCap: 2,
   },
   shop: {
-    offerSize: 3,
+    offerSize: 5,
     refreshCost: 2,
     costByRarity: { common: 3, rare: 4, special: 5 },
     rarityWeights: { common: 70, rare: 25, special: 5 },
@@ -19,7 +19,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
   rounds: {
     startingLives: 3,
     unitLimitByRound: [3, 4, 5, 6, 7],
-    benchSize: 3,
+    benchSize: 6,
     preparationSeconds: 40,
     shortPreparationFromRound: 6,
     shortPreparationSeconds: 30,
@@ -31,7 +31,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
     cost: 5,
     health: 4,
     incomePerRound: 2,
-    offerChancePercent: 10,
+    // Por vaga: com 5 vagas, 6% mantém a chance de ver uma torre na loja perto da de antes (3 vagas a 10%).
+    offerChancePercent: 6,
     maximumOwned: 2,
+    compensationOnLoss: 2,
   },
 });

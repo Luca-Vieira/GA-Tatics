@@ -5,10 +5,12 @@ import type { ActionResult } from '../players/playerActions';
 import { isAlive, type UnitLocation } from '../players/playerState';
 import { rotationIndexAt, synergyMappingForIndex } from '../synergies/rotation';
 import { playMatchWithBots } from './botMatch';
-import { Game } from './Game';
+import { Game, MAXIMUM_PLAYERS, MINIMUM_PLAYERS, type GamePlayerInput } from './Game';
 import type { HumanDuel, MatchSession, SessionListener, SpriteSource } from './MatchSession';
 
 export const LOCAL_HUMAN_ID = 'human';
+export const DEFAULT_LOCAL_PLAYER_COUNT = 4;
+const BOT_NAMES = ['Bot Ana', 'Bot Beto', 'Bot Caio', 'Bot Duda', 'Bot Edu', 'Bot Fabi', 'Bot Gil'];
 /** Depois de apertar "pronto", espera um instante antes de começar, para dar tempo de desfazer. */
 const READY_DELAY_MS = 350;
 
@@ -18,6 +20,8 @@ export interface LocalMatchOptions {
   readonly seed?: string;
   /** Hora usada para escolher a rotação de sinergias (injetável nos testes). */
   readonly nowMs?: number;
+  /** Total de jogadores, contando o humano (de 2 a 8). */
+  readonly playerCount?: number;
 }
 
 const NO_LISTENER: SessionListener = {
@@ -31,9 +35,18 @@ const NO_LISTENER: SessionListener = {
   connectionLost: () => undefined,
 };
 
-/** Partida do jogador contra três bots, rodando inteira no navegador: o cronômetro e os bots ficam aqui, as regras no `Game`. */
+function localPlayers(playerCount: number): GamePlayerInput[] {
+  if (!Number.isInteger(playerCount) || playerCount < MINIMUM_PLAYERS || playerCount > MAXIMUM_PLAYERS) {
+    throw new Error(`A partida precisa de ${MINIMUM_PLAYERS} a ${MAXIMUM_PLAYERS} jogadores.`);
+  }
+  const bots = BOT_NAMES.slice(0, playerCount - 1).map((name, index) => ({ id: `bot${index + 1}`, name, isBot: true }));
+  return [{ id: LOCAL_HUMAN_ID, name: 'Você', isBot: false }, ...bots];
+}
+
+/** Partida do jogador contra bots, rodando inteira no navegador: o cronômetro e os bots ficam aqui, as regras no `Game`. */
 export class LocalMatchSession implements MatchSession {
   readonly humanId = LOCAL_HUMAN_ID;
+  readonly spectator = null;
   readonly match: Game;
   readonly spriteSources: readonly SpriteSource[] = [];
   readonly roomRules: readonly string[] = [];
@@ -49,12 +62,7 @@ export class LocalMatchSession implements MatchSession {
     this.match = new Game({
       seed: options.seed ?? `partida-${Math.floor(Math.random() * 0xffffffff)}`,
       roster: DEFAULT_CHARACTERS,
-      players: [
-        { id: LOCAL_HUMAN_ID, name: 'Você', isBot: false },
-        { id: 'bot1', name: 'Bot Ana', isBot: true },
-        { id: 'bot2', name: 'Bot Beto', isBot: true },
-        { id: 'bot3', name: 'Bot Caio', isBot: true },
-      ],
+      players: localPlayers(options.playerCount ?? DEFAULT_LOCAL_PLAYER_COUNT),
       synergyMapping: synergyMappingForIndex(
         rotationIndex,
         DEFAULT_SYNERGY_ROTATION,
@@ -151,6 +159,12 @@ export class LocalMatchSession implements MatchSession {
     }
     this.match.startNextRound();
     this.beginPreparation();
+  }
+
+  /** Abandonar a partida contra bots apenas a encerra. */
+  leave(): void {
+    this.phase = 'over';
+    this.dispose();
   }
 
   dispose(): void {

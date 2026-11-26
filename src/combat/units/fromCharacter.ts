@@ -28,6 +28,7 @@ export function unitSpecFromCharacter(character: CharacterDefinition, placement:
     starMultipliers,
     behavior: character.behavior,
     ability: character.ability,
+    attack: character.attack,
     characterId: character.id,
     bonuses: placement.bonuses,
   };

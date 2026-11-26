@@ -1,10 +1,19 @@
 import Phaser from 'phaser';
+import { renderScale } from '../display/renderScale';
 import { COLORS, FONT_FAMILY, PANEL_DEPTH, TEXT_COLORS } from './palette';
 
 export * from './palette';
 
+/** Todo texto do jogo passa por aqui: a resolução acompanha a do canvas, senão as letras saem borradas. */
 export function addText(scene: Phaser.Scene, x: number, y: number, content: string, style: Phaser.Types.GameObjects.Text.TextStyle = {}): Phaser.GameObjects.Text {
-  return scene.add.text(x, y, content, { fontFamily: FONT_FAMILY, fontSize: '14px', color: TEXT_COLORS.main, ...style });
+  return scene.add.text(x, y, content, { fontFamily: FONT_FAMILY, fontSize: '14px', color: TEXT_COLORS.main, resolution: renderScale(), ...style });
+}
+
+/** `setColor` do Phaser redesenha o texto mesmo sem mudança; a interface é atualizada várias vezes por segundo. */
+export function setTextColor(text: Phaser.GameObjects.Text, color: string): void {
+  if (text.style.color !== color) {
+    text.setColor(color);
+  }
 }
 
 export function addPanelBackground(scene: Phaser.Scene, x: number, y: number, width: number, height: number): Phaser.GameObjects.Rectangle {

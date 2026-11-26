@@ -130,7 +130,9 @@ export class ServerConnection {
 
   /** Devolve `false` quando a mensagem não foi enviada (conexão fechada ou limite do cliente). */
   send(message: ClientMessage): boolean {
-    if (!this.isOpen || !this.rateLimiter.tryConsume(this.nowMs())) {
+    // Sair da sala nunca é segurado: se ficasse para trás, a pessoa continuaria presa nela no servidor.
+    const isHeldByLimit = !this.rateLimiter.tryConsume(this.nowMs()) && message.type !== 'leave_room';
+    if (!this.isOpen || isHeldByLimit) {
       return false;
     }
     this.socket.send(JSON.stringify(message));

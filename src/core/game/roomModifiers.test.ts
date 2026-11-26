@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_COMBAT_TIME_LIMIT_MS } from '@combat/engine/constants';
 import { DEFAULT_GAME_CONFIG } from '@data/defaults/gameConfig';
 import { NO_ROOM_MODIFIERS, ROOM_MODIFIER_CHOICES, roomModifiersSchema } from '@data/schemas/roomModifiers';
 import { cellAt, giveUnit, makeGame } from '../testSupport';
@@ -70,7 +71,7 @@ describe('modificadores na partida', () => {
   it('"mais tempo de combate" vai no limite do combate; sem a regra, vale o limite padrão', () => {
     expect(combatOf(makeGame()).timeLimitMs).toBeUndefined();
     const config = combatOf(makeGame({ combatRules: combatRulesOf({ ...NO_ROOM_MODIFIERS, extraCombatSeconds: 20 }) }));
-    expect(config.timeLimitMs).toBe(50_000);
+    expect(config.timeLimitMs).toBe(DEFAULT_COMBAT_TIME_LIMIT_MS + 20_000);
   });
 
   it('vidas, tempo de preparação e renda da sala entram pela configuração', () => {

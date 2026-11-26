@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { abilitySchema } from './ability';
+import { attackSchema } from './attack';
 import { baseStatsSchema } from './stats';
 
 export const raritySchema = z.enum(['common', 'rare', 'special']);
@@ -9,14 +10,18 @@ export type Rarity = z.infer<typeof raritySchema>;
 export const behaviorSchema = z.strictObject({
   /** chase: persegue; frontline: avança até a linha de frente; kite: mantém distância. */
   movement: z.enum(['chase', 'frontline', 'kite']),
-  /** Critério de escolha de alvo entre os inimigos próximos (alcance + 2); sem candidatos, o mais próximo. */
-  targetPriority: z.enum(['nearest', 'lowest_health', 'cluster']),
+  /**
+   * Critério de escolha de alvo. "nearest" e "farthest" olham o campo todo; "lowest_health" e "cluster" olham os
+   * inimigos próximos (alcance + 2) e, sem candidatos, escolhem o mais próximo.
+   */
+  targetPriority: z.enum(['nearest', 'farthest', 'lowest_health', 'cluster']),
   /** Distância mínima que o personagem tenta manter do inimigo mais próximo (recua se estiver mais perto). */
   preferredDistance: z.number().int().min(1).default(1),
 });
 export type BehaviorProfile = z.infer<typeof behaviorSchema>;
 
-const spriteSchema = z.strictObject({
+/** Imagem enviada pelo painel e como encaixá-la; serve para personagens e para os sprites auxiliares. */
+export const spriteDefinitionSchema = z.strictObject({
   /** Caminho da imagem (PNG com transparência). Sem ele, o jogo usa o sprite provisório. */
   path: z.string().min(1),
   scale: z.number().positive().default(1),
@@ -26,6 +31,7 @@ const spriteSchema = z.strictObject({
   anchorX: z.number().min(0).max(1).default(0.5),
   anchorY: z.number().min(0).max(1).default(1),
 });
+export type SpriteDefinition = z.infer<typeof spriteDefinitionSchema>;
 
 const visualSchema = z.strictObject({
   idleAnimation: z.enum(['wiggle', 'bob']).default('wiggle'),
@@ -47,9 +53,11 @@ export const characterSchema = z.strictObject({
   category: z.string().min(1),
   rarity: raritySchema,
   active: z.boolean().default(true),
-  sprite: spriteSchema.optional(),
+  sprite: spriteDefinitionSchema.optional(),
   stats: baseStatsSchema,
   behavior: behaviorSchema,
+  /** Formato do ataque básico; sem ele, ataca em círculo (um inimigo por golpe). */
+  attack: attackSchema.optional(),
   ability: abilitySchema,
   visual: visualSchema.default({ idleAnimation: 'wiggle', walkAnimation: 'bounce', attackAnimation: 'lunge', hitAnimation: 'shake' }),
   evolution: evolutionSchema.default({}),

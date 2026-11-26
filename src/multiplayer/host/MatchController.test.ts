@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { makeGame } from '@core/testSupport';
+import { cellAt, giveUnit, makeGame } from '@core/testSupport';
+import { coinsAtRoundStart } from '@core/economy/economy';
 import type { ServerMessage } from '../protocol/serverMessages';
-import { MatchController } from './MatchController';
+import { MatchController, MINIMUM_COMBAT_PHASE_MS } from './MatchController';
 import { ManualScheduler } from './scheduler';
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
@@ -110,6 +111,19 @@ describe('fases e cronômetros', () => {
     expect(result?.type === 'round_result' ? result.players : []).toHaveLength(4);
   });
 
+  it('o resultado sai quando o duelo que alguém vê termina, sem esperar um combate só entre bots', () => {
+    const { controller, scheduler, messagesOf, typesOf } = createMatch();
+    controller.start();
+    scheduler.advance(40_000);
+    const combat = messagesOf('p1').find((message) => message.type === 'combat_started');
+    const ownDurationMs = combat?.type === 'combat_started' ? combat.duel!.result.durationMs : 0;
+    const expectedWaitMs = Math.max(ownDurationMs, MINIMUM_COMBAT_PHASE_MS);
+    scheduler.advance(expectedWaitMs - 1);
+    expect(typesOf('p1')).not.toContain('round_result');
+    scheduler.advance(1);
+    expect(typesOf('p1')).toContain('round_result');
+  });
+
   it('ações fora da preparação são recusadas', () => {
     const { controller, scheduler, messagesOf } = createMatch();
     controller.start();
@@ -146,6 +160,25 @@ describe('partida inteira e desconexões', () => {
     controller.handleAction('p1', { type: 'set_ready', ready: true });
     scheduler.advance(0);
     expect(typesOf('p1')).toContain('combat_started');
+  });
+
+  it('a torre destruída e a compensação chegam ao jogador: some das unidades e as moedas são as do servidor', () => {
+    const { controller, scheduler, messagesOf, typesOf, game } = createMatch();
+    controller.start();
+    giveUnit(game.getPlayer('p1'), 'torre', { kind: 'board', cell: cellAt(2, 5) });
+    controller.handleAction('p1', { type: 'set_ready', ready: true });
+    scheduler.advance(0);
+    while (!typesOf('p1').includes('round_result')) {
+      scheduler.advance(100);
+    }
+    const result = messagesOf('p1').find((message) => message.type === 'round_result');
+    expect(result).toMatchObject({ towersLostByPlayerId: { p1: 1 } });
+    const coinsBeforeNextRound = game.getPlayer('p1').coins;
+    scheduler.advance(5_000);
+    const view = messagesOf('p1').filter((message) => message.type === 'player_view').at(-1);
+    expect(view).toMatchObject({ view: { coins: game.getPlayer('p1').coins, units: [] } });
+    // Sem a torre não há renda dela: sobra a renda normal da rodada mais a compensação.
+    expect(game.getPlayer('p1').coins).toBe(coinsAtRoundStart(game.config.economy, coinsBeforeNextRound, 2) + game.config.tower.compensationOnLoss);
   });
 
   it('quando todos os humanos saem, a partida é encerrada e os cronômetros param', () => {

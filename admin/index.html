@@ -65,6 +65,37 @@
       .import-area { min-height: 140px; width: 100%; }
       details.section { margin-top: 12px; }
       details.section label.inline { margin-top: 6px; }
+      .tabs { flex-wrap: wrap; }
+      .columns > * { min-width: 0; }
+      .columns.spaced { margin-top: 12px; }
+      .row.between { justify-content: space-between; }
+      button.item { color: inherit; font-weight: normal; text-align: left; font-size: 14px; background: #0f1a30; }
+      .thumbnail { width: 28px; height: 28px; object-fit: contain; flex: none; text-align: center; line-height: 28px; }
+      .adjust-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+      .stage-column { display: flex; flex-direction: column; gap: 8px; }
+      .sprite-stage { width: 100%; max-width: 480px; background: #0b1220; border: 1px dashed #3b4d73; border-radius: 6px; touch-action: none; cursor: move; image-rendering: pixelated; }
+      .adjust-controls { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+      .slider-row { display: flex; gap: 8px; align-items: center; }
+      .slider-row input[type="range"] { flex: 1; min-width: 0; padding: 0; }
+      .slider-row input[type="number"] { width: 84px; flex: none; }
+      .icon-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: end; margin-bottom: 8px; }
+      .icon-row input { width: 100%; }
+      .attack-preview { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+      .attack-drawing { max-width: 100%; height: auto; }
+      @media (max-width: 960px) {
+        .adjust-layout { grid-template-columns: minmax(0, 1fr); }
+      }
+      @media (max-width: 720px) {
+        #app { padding: 10px; }
+        .panel { padding: 12px; }
+        .login { margin: 16px auto; }
+        .columns { grid-template-columns: minmax(0, 1fr); }
+        .list { max-height: 260px; }
+        .grid { grid-template-columns: minmax(0, 1fr); }
+        .icon-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .icon-row .name { grid-column: 1 / -1; }
+        input, textarea, select { max-width: 100%; }
+      }
     </style>
   </head>
   <body>

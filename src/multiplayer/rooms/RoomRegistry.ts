@@ -3,6 +3,8 @@ import type { RoomSummaryView } from '../protocol/serverMessages';
 import { NO_ROOM_MODIFIERS } from '@data/schemas/roomModifiers';
 import { DEFAULT_ROOM_SETTINGS, Room, type RoomDependencies, type RoomResult, type RoomSettings } from './Room';
 import { generateRoomCode } from './roomCode';
+import { DEFAULT_PLAYERS_PER_ROOM } from '../protocol/clientMessages';
+import type { LiveActivity } from '../host/liveActivities';
 
 export interface RoomRegistryOptions {
   readonly dependencies: RoomDependencies;
@@ -13,6 +15,9 @@ export interface RoomRegistryOptions {
 
 /** Quantas salas a lista pública mostra (as mais antigas primeiro). */
 const MAXIMUM_LISTED_ROOMS = 50;
+
+export const ROOM_ABANDONED_NOTICE = 'Os jogadores saíram e a sala foi encerrada.';
+export const ENDED_BY_ADMIN_NOTICE = 'A sala foi encerrada pelo administrador do servidor.';
 
 /** Guarda as salas abertas e sabe em qual delas cada conexão está. */
 export class RoomRegistry {
@@ -28,13 +33,23 @@ export class RoomRegistry {
     return this.rooms.size;
   }
 
+  /** Sala em que a conexão está (jogando, esperando ou assistindo). */
   roomOf(connectionId: string): Room | null {
     const code = this.roomCodeByConnection.get(connectionId);
-    return code ? (this.rooms.get(code) ?? null) : null;
+    if (!code) {
+      return null;
+    }
+    const room = this.rooms.get(code);
+    // A sala pode ter acabado ou, ao fim da partida, ter dispensado quem assistia.
+    if (!room?.includes(connectionId)) {
+      this.roomCodeByConnection.delete(connectionId);
+      return null;
+    }
+    return room;
   }
 
   createRoom(connectionId: string, playerName: string, settings: RoomSettings = DEFAULT_ROOM_SETTINGS): RoomResult<Room> {
-    if (this.roomCodeByConnection.has(connectionId)) {
+    if (this.roomOf(connectionId)) {
       return failure('already_in_room');
     }
     if (this.rooms.size >= this.options.maximumRooms) {
@@ -46,18 +61,44 @@ export class RoomRegistry {
   }
 
   joinRoom(connectionId: string, roomCode: string, playerName: string, password?: string): RoomResult<Room> {
-    if (this.roomCodeByConnection.has(connectionId)) {
+    if (this.roomOf(connectionId)) {
       return failure('already_in_room');
     }
+    const found = this.findRoom(roomCode, password);
+    return found.ok ? this.enter(found.value, connectionId, playerName) : found;
+  }
+
+  /** Entra numa partida em andamento só para assistir. */
+  spectate(connectionId: string, roomCode: string, password?: string): RoomResult<Room> {
+    if (this.roomOf(connectionId)) {
+      return failure('already_in_room');
+    }
+    const found = this.findRoom(roomCode, password);
+    if (!found.ok) {
+      return found;
+    }
+    const added = found.value.addSpectator(connectionId);
+    if (!added.ok) {
+      return added;
+    }
+    this.roomCodeByConnection.set(connectionId, found.value.code);
+    return found;
+  }
+
+  /** Tudo o que está em andamento (salas privadas inclusive), para o painel de administração. */
+  listActivities(): LiveActivity[] {
+    return [...this.rooms.values()].map((room) => room.activity());
+  }
+
+  /** Encerra a sala à força, avisando quem está nela. Devolve falso se ela não existir. */
+  endRoom(roomCode: string, notice: string): boolean {
     const room = this.rooms.get(roomCode);
     if (!room) {
-      return failure('room_not_found');
+      return false;
     }
-    // A senha é conferida antes de tudo: quem erra não descobre se a sala está cheia ou em partida.
-    if (!room.acceptsPassword(password)) {
-      return failure('wrong_password');
-    }
-    return this.enter(room, connectionId, playerName);
+    room.close(notice);
+    this.rooms.delete(roomCode);
+    return true;
   }
 
   /** Salas públicas (as privadas nunca aparecem), da mais antiga para a mais nova. */
@@ -73,12 +114,13 @@ export class RoomRegistry {
    * cria uma sala pública nova com as regras normais.
    */
   quickMatch(connectionId: string, playerName: string): RoomResult<Room> {
-    if (this.roomCodeByConnection.has(connectionId)) {
+    if (this.roomOf(connectionId)) {
       return failure('already_in_room');
     }
     const candidates = [...this.rooms.values()].filter((room) => room.visibility === 'public' && !room.hasPassword && room.isOpenForPlayers);
     const hasNormalRules = (room: Room) => JSON.stringify(room.modifiers) === JSON.stringify(NO_ROOM_MODIFIERS);
-    const target = candidates.find(hasNormalRules) ?? candidates[0];
+    const hasUsualSize = (room: Room) => room.maximumPlayers === DEFAULT_PLAYERS_PER_ROOM;
+    const target = candidates.find((room) => hasNormalRules(room) && hasUsualSize(room)) ?? candidates.find(hasNormalRules) ?? candidates[0];
     return target ? this.enter(target, connectionId, playerName) : this.createRoom(connectionId, playerName);
   }
 
@@ -89,8 +131,8 @@ export class RoomRegistry {
     }
     this.roomCodeByConnection.delete(connectionId);
     room.leave(connectionId);
-    if (room.isEmpty || !room.hasConnectedMembers) {
-      room.close();
+    if (!room.hasConnectedMembers) {
+      room.close(ROOM_ABANDONED_NOTICE);
       this.rooms.delete(room.code);
     }
   }
@@ -111,6 +153,15 @@ export class RoomRegistry {
     }
     this.roomCodeByConnection.set(connectionId, room.code);
     return { ok: true, value: room };
+  }
+
+  private findRoom(roomCode: string, password: string | undefined): RoomResult<Room> {
+    const room = this.rooms.get(roomCode);
+    if (!room) {
+      return failure('room_not_found');
+    }
+    // A senha é conferida antes de tudo: quem erra não descobre se a sala está cheia ou em partida.
+    return room.acceptsPassword(password) ? { ok: true, value: room } : failure('wrong_password');
   }
 
   private createUniqueCode(): string {

@@ -1,6 +1,8 @@
 import type { AbilityDefinition } from '@data/schemas/ability';
+import type { AttackDefinition } from '@data/schemas/attack';
 import type { BehaviorProfile } from '@data/schemas/character';
 import type { BoardSide } from '@shared/constants/board';
+import { facingTowards, sweepTowards, type AttackFacing, type AttackSweep } from '@shared/utils/attackArea';
 import type { Hex } from '@shared/utils/hex';
 import type { StatusInstance } from '../effects/status';
 import type { TeamBonuses } from './bonuses';
@@ -20,6 +22,8 @@ export interface UnitSpec {
   readonly starMultipliers?: StarMultipliers;
   readonly behavior?: BehaviorProfile;
   readonly ability?: AbilityDefinition;
+  /** Formato do ataque básico; sem ele, círculo com um alvo. */
+  readonly attack?: AttackDefinition;
   /** Id do personagem no elenco, quando a unidade vem de uma definição. */
   readonly characterId?: string;
   /** Bônus de equipe (sinergias) aplicados no início do combate. Sem eles, a unidade usa só os próprios atributos. */
@@ -38,6 +42,9 @@ export interface CombatUnit {
   readonly stats: CombatStats;
   readonly behavior: BehaviorProfile;
   readonly ability: AbilityDefinition | null;
+  readonly attack: AttackDefinition;
+  /** Chave do sprite auxiliar (invocações, clones e torre); `null` nos personagens. */
+  readonly auxiliarySpriteKey: string | null;
   readonly starLevel: StarLevel;
   /** Multiplicador de estrela aplicado à vida e ao dano. */
   readonly starMultiplier: number;
@@ -47,6 +54,12 @@ export interface CombatUnit {
   resistance: number;
   alive: boolean;
   targetId: string | null;
+  /** Para onde a unidade olha: acompanha o alvo, mesmo quando ela anda na direção oposta. */
+  facing: AttackFacing;
+  /** Para que lado o golpe curvo varre: acompanha o alvo, junto com `facing`. */
+  sweep: AttackSweep;
+  /** Já teve o alvo atual dentro da área de ataque (usado por quem mira no mais distante). */
+  hasReachedTarget: boolean;
   nextAttackAtMs: number;
   nextMoveAtMs: number;
   abilityReadyAtMs: number;
@@ -72,6 +85,12 @@ export interface CombatUnit {
   readonly isStructure: boolean;
   readonly ownerId: string | null;
   readonly expiresAtMs: number | null;
+}
+
+/** Vira a unidade para a casa: frente ou trás, e o lado da varredura. */
+export function turnTowards(unit: CombatUnit, cell: Hex): void {
+  unit.facing = facingTowards(unit.cell, cell, unit.facing);
+  unit.sweep = sweepTowards(unit.cell, cell, unit.sweep);
 }
 
 /** Só as unidades colocadas pelo jogador (nem invocações, nem estruturas) decidem o fim e o resultado do combate. */

@@ -7,6 +7,7 @@
   "rarity": "common",
   "stats": { "health": 8, "damage": 6, "attackSpeed": 4, "range": 2, "mobility": 2 },
   "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "attack": { "shape": "scythe", "maxTargets": 2, "splashDamageFraction": 0.3 },
   "ability": {
     "id": "plug_the_gap",
     "name": "Tapar buraco",
@@ -18,6 +19,6 @@
       { "type": "status", "targets": "self", "status": "speed_boost", "value": 0.5, "durationSeconds": 5 },
       { "type": "status", "targets": "self", "status": "damage_boost", "value": 0.4, "durationSeconds": 5 }
     ],
-    "visual": { "kind": "aura", "color": "#facc15" }
+    "visual": { "kind": "aura", "color": "#facc15", "icon": "🔧", "projectileIcon": "🔩" }
   }
 }

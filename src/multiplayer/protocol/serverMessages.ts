@@ -7,10 +7,7 @@ import type { UnitLocation } from '@core/players/playerState';
 
 /** Mensagens que o servidor envia aos clientes. Só dados simples (JSON): nada de funções nem de referências internas. */
 
-export const PROTOCOL_VERSION = 3;
-
-/** A partida é sempre de 4 jogadores; vagas sem pessoa são preenchidas por bots. */
-export const PLAYERS_PER_MATCH = 4;
+export const PROTOCOL_VERSION = 4;
 
 export type RoomStatus = 'lobby' | 'playing';
 export type RoomVisibility = 'public' | 'private';
@@ -24,6 +21,9 @@ export interface RoomSummaryView {
   readonly hasPassword: boolean;
   readonly status: RoomStatus;
   readonly modifiers: RoomModifiers;
+  readonly spectatorCount: number;
+  /** Há partida em andamento e ainda cabe mais um espectador. */
+  readonly canBeWatched: boolean;
 }
 
 export interface RoomMemberView {
@@ -81,6 +81,17 @@ export interface DuelOutcomeView {
   readonly durationMs: number;
 }
 
+/** O que descreve uma partida para quem passa a vê-la (jogando ou assistindo). */
+export interface MatchSetupView {
+  readonly players: readonly PublicPlayerView[];
+  readonly synergyMapping: Readonly<Record<string, string>>;
+  readonly rotationIndex: number;
+  /** Regras especiais da sala (vidas, tempos, renda e status extras). */
+  readonly modifiers: RoomModifiers;
+  /** Versão do conteúdo com que a partida foi criada; se for diferente da do cliente, ele precisa recarregar a página. */
+  readonly contentVersion: number;
+}
+
 export type ServerMessage =
   /** Primeira mensagem da conexão: traz o conteúdo do jogo (elenco, sinergias, configuração) vigente no servidor. */
   | { readonly type: 'hello'; readonly protocolVersion: number; readonly contentVersion: number; readonly content: GameContent }
@@ -95,20 +106,19 @@ export type ServerMessage =
       readonly visibility: RoomVisibility;
       readonly hasPassword: boolean;
       readonly modifiers: RoomModifiers;
+      readonly maximumPlayers: number;
     }
   /** Resposta a `list_rooms`: só as salas públicas. */
   | { readonly type: 'room_list'; readonly rooms: readonly RoomSummaryView[] }
-  | { readonly type: 'room_closed' }
-  | {
-      readonly type: 'match_started';
-      readonly players: readonly PublicPlayerView[];
-      readonly synergyMapping: Readonly<Record<string, string>>;
-      readonly rotationIndex: number;
-      /** Regras especiais da sala (vidas, tempos, renda e status extras). */
-      readonly modifiers: RoomModifiers;
-      /** Versão do conteúdo com que a partida foi criada; se for diferente da do cliente, ele precisa recarregar a página. */
-      readonly contentVersion: number;
-    }
+  /** A sala acabou. Com `notice`, foi encerrada por fora (administrador, jogadores saíram) e a tela deve explicar. */
+  | { readonly type: 'room_closed'; readonly notice?: string }
+  | ({ readonly type: 'match_started' } & MatchSetupView)
+  /** Resposta a `spectate_room`: a pessoa passou a assistir (sem vaga na sala). */
+  | ({ readonly type: 'spectate_started'; readonly roomCode: string; readonly watchedPlayerId: string } & MatchSetupView)
+  /** Resposta a `watch_player`; em seguida vem o retrato atual da partida na visão desse jogador. */
+  | { readonly type: 'watching'; readonly playerId: string }
+  /** Alguém saiu e um bot assumiu a vaga. */
+  | { readonly type: 'players_updated'; readonly players: readonly PublicPlayerView[] }
   | {
       readonly type: 'round_started';
       readonly round: number;
@@ -122,7 +132,8 @@ export type ServerMessage =
   | { readonly type: 'player_view'; readonly view: OwnPlayerView }
   | { readonly type: 'action_result'; readonly ok: true; readonly fusionCount: number }
   | { readonly type: 'action_result'; readonly ok: false; readonly reason: ActionFailure }
-  | { readonly type: 'combat_started'; readonly round: number; readonly duel: DuelView | null }
+  /** `elapsedMs` só vem para quem começa a assistir com o combate em andamento. */
+  | { readonly type: 'combat_started'; readonly round: number; readonly duel: DuelView | null; readonly elapsedMs?: number }
   | {
       readonly type: 'round_result';
       readonly round: number;
@@ -148,5 +159,9 @@ export type ServerErrorCode =
   | 'match_in_progress'
   | 'not_host'
   | 'no_match_running'
+  | 'spectators_full'
+  | 'spectator_cannot_act'
+  | 'not_spectating'
+  | 'unknown_player'
   | 'server_full'
   | 'internal_error';

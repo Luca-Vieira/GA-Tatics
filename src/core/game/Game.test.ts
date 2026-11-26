@@ -26,7 +26,7 @@ function playUntilFinished(game: Game, maximumRounds = 80): number {
 }
 
 describe('início da partida', () => {
-  it('todos começam na rodada 1 com 3 vidas, 5 moedas, tabuleiro e reserva vazios e uma loja de 3 ofertas', () => {
+  it('todos começam na rodada 1 com 3 vidas, 5 moedas, tabuleiro e reserva vazios e uma loja de 5 ofertas', () => {
     const game = makeGame();
     expect(game.round).toBe(1);
     expect(game.phase).toBe('preparation');
@@ -34,7 +34,7 @@ describe('início da partida', () => {
       expect(player.lives).toBe(3);
       expect(player.coins).toBe(5);
       expect(player.units).toHaveLength(0);
-      expect(player.shop).toHaveLength(3);
+      expect(player.shop).toHaveLength(5);
     }
   });
 
@@ -72,7 +72,7 @@ describe('ações na preparação', () => {
     expect(duel!.bottomId).toBe('p1');
     const bixo = duel!.combatConfig.units.find((unit) => unit.characterId === 'bixo')!;
     expect(bixo.side).toBe('B');
-    expect(bixo.cell).toEqual(cellAt(2, 4));
+    expect(bixo.cell).toEqual(cellAt(2, 8));
   });
 
   it('os bônus de sinergia do tabuleiro entram nas unidades do combate (a reserva não conta)', () => {
@@ -85,8 +85,8 @@ describe('ações na preparação', () => {
     const [duel] = game.resolveCombats();
     const playerUnits = duel!.combatConfig.units.filter((unit) => unit.id.includes('p1-'));
     expect(playerUnits).toHaveLength(2);
-    // 2 de Caos no tabuleiro → +6% dano, +4% velocidade de ataque.
-    expect(playerUnits.every((unit) => unit.bonuses?.damageMultiplier === 1.06)).toBe(true);
+    // 2 de Caos no tabuleiro → +5% dano, +3% velocidade de ataque.
+    expect(playerUnits.every((unit) => unit.bonuses?.damageMultiplier === 1.05)).toBe(true);
     expect(game.synergyStatusesOf('p1').find((status) => status.synergy.id === 'caos')?.count).toBe(2);
   });
 });
@@ -127,7 +127,7 @@ describe('rodadas, vidas e eliminação', () => {
     // 5 guardadas + 1 de juros + 5 da tabela da rodada 2.
     expect(game.getPlayer('p1').coins).toBe(10);
     expect(game.getPlayer('p1').ready).toBe(false);
-    expect(game.getPlayer('p1').shop).toHaveLength(3);
+    expect(game.getPlayer('p1').shop).toHaveLength(5);
     expect(game.pairings.pairs).toEqual([['p1', 'p3'], ['p2', 'p4']]);
   });
 

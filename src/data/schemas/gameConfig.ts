@@ -52,6 +52,8 @@ export const towerConfigSchema = z.strictObject({
   offerChancePercent: z.number().min(0).max(100),
   /** Quantas torres uma pessoa pode ter ao mesmo tempo (no tabuleiro e na reserva). */
   maximumOwned: nonNegativeInteger,
+  /** Moedas pagas uma vez, no início da rodada seguinte, a quem teve uma torre destruída. */
+  compensationOnLoss: nonNegativeInteger.default(2),
 });
 
 export const gameConfigSchema = z.strictObject({

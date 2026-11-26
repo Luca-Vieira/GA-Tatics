@@ -7,6 +7,7 @@
   "rarity": "common",
   "stats": { "health": 6, "damage": 6, "attackSpeed": 5, "range": 1, "mobility": 6 },
   "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "attack": { "shape": "front_line" },
   "ability": {
     "id": "drain_life",
     "name": "Olhar penetrante",
@@ -17,6 +18,6 @@
     "effects": [
       { "type": "status", "targets": "center_unit", "status": "drain", "value": 0.7, "tickSeconds": 0.5, "durationSeconds": 3, "healRatio": 1 }
     ],
-    "visual": { "kind": "aura", "color": "#dc2626" }
+    "visual": { "kind": "aura", "color": "#dc2626", "icon": "👁️" }
   }
 }

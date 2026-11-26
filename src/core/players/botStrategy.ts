@@ -5,15 +5,15 @@ import { benchUnitsOf, boardUnitsOf, type OwnedUnit, type PlayerState, type Unit
 
 /** Quem tem alcance até aqui fica na frente; os demais ficam atrás. */
 const MELEE_MAXIMUM_RANGE = 2;
-const FRONT_ROWS = [3, 2];
-const BACK_ROWS = [1, 0];
+const FRONT_ROWS = [5, 4];
+const BACK_ROWS = [3, 2];
 /** Colunas do centro para as bordas, para a formação ficar compacta. */
 const COLUMNS_FROM_CENTER = [2, 1, 3, 0, 4];
 const MAXIMUM_ORGANIZATION_PASSES = 12;
 
 /**
  * Bot simples (decisoes-de-design.md, Seção 8): compra primeiro o que completa ou avança uma fusão e depois
- * o mais barato que puder pagar, põe os melhores no tabuleiro (corpo a corpo na frente, à distância atrás) e fica pronto.
+ * o que a loja oferecer e couber no bolso, põe os melhores no tabuleiro (corpo a corpo na frente, à distância atrás) e fica pronto.
  */
 export function playBotPreparation(game: Game, botId: string): void {
   buyAffordableOffers(game, botId);
@@ -33,16 +33,22 @@ function buyAffordableOffers(game: Game, botId: string): void {
   }
 }
 
-/** Ofertas que repetem um personagem já possuído vêm antes; depois, as mais baratas. */
+/**
+ * Ofertas que repetem um personagem já possuído vêm antes; depois, a ordem da loja (assim o bot experimenta o elenco
+ * todo, e não só os mais baratos). Personagem novo só enquanto a equipe tem até uma unidade além do limite do tabuleiro.
+ */
 function chooseOfferToBuy(game: Game, bot: PlayerState): number | null {
   const ownedCharacterIds = new Set(bot.units.map((unit) => unit.characterId));
+  const wantsNewCharacters = bot.units.filter((unit) => !isTowerId(unit.characterId)).length <= game.unitLimit;
+  const isOwned = (characterId: string) => ownedCharacterIds.has(characterId);
   const candidates = bot.shop
     .map((offer, slotIndex) => ({ offer, slotIndex }))
     .filter((entry) => entry.offer !== null && entry.offer.cost <= bot.coins && !isTowerId(entry.offer.characterId))
+    .filter((entry) => wantsNewCharacters || isOwned(entry.offer?.characterId ?? ''))
     .sort((first, second) => {
-      const firstIsOwned = ownedCharacterIds.has(first.offer?.characterId ?? '') ? 0 : 1;
-      const secondIsOwned = ownedCharacterIds.has(second.offer?.characterId ?? '') ? 0 : 1;
-      return firstIsOwned - secondIsOwned || (first.offer?.cost ?? 0) - (second.offer?.cost ?? 0) || first.slotIndex - second.slotIndex;
+      const firstRank = isOwned(first.offer?.characterId ?? '') ? 0 : 1;
+      const secondRank = isOwned(second.offer?.characterId ?? '') ? 0 : 1;
+      return firstRank - secondRank || first.slotIndex - second.slotIndex;
     });
   // Só tenta o que cabe: compras que falham (sem espaço) não podem prender o laço.
   const affordableAndFitting = candidates.find((entry) => canFit(game, bot, entry.offer?.characterId ?? ''));

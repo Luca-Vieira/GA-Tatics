@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHARACTERS } from '@data/defaults/characters';
+import { abilitySchema } from '@data/schemas/ability';
 import { hexDistance, hexNeighbors, offsetToAxial, type Hex } from '@shared/utils/hex';
 import { SeededRandom } from '@shared/utils/random';
 import { computeModifiers } from '../effects/modifiers';
@@ -376,12 +377,36 @@ describe('Wender — Tapar buraco (sobrecarga)', () => {
   });
 });
 
-describe('Gustavo — Mordida de cavalo (armadilha e invocação)', () => {
+describe('armadilha que invoca (efeito place_trap, disponível no painel)', () => {
+  /** O Gustavo de lançamento invoca direto; este monta a versão antiga, com mina, que o painel ainda permite criar. */
+  const trapper = (starLevel?: 1 | 2 | 3): UnitSpec => {
+    const spec = characterSpec('gustavo', 'A1', 'A', cellAt(2, 3), starLevel);
+    const trapAbility = abilitySchema.parse({
+      id: 'horse_bite_mine',
+      name: 'Mina de cavalos',
+      description: 'Instala uma armadilha que invoca cavalos.',
+      activation: { type: 'cooldown', requires: 'always' },
+      cooldownSeconds: 13,
+      cast: { target: 'current_target', range: 3 },
+      effects: [
+        {
+          type: 'place_trap',
+          triggerRadius: 1,
+          armingSeconds: 0.5,
+          lifetimeSeconds: 15,
+          summon: { name: 'Cavalo', stats: { health: 2, damage: 3, attackSpeed: 6, range: 1, mobility: 7 }, count: 2, lifetimeSeconds: 6 },
+        },
+      ],
+      visual: { kind: 'burst', color: '#a16207' },
+    });
+    return { ...spec, ability: trapAbility, stats: { ...spec.stats, range: 3 } };
+  };
+
   const gustavoVersusDummy = (timeLimitMs?: number) => {
     const simulation = new CombatSimulation({
       seed: 1,
       timeLimitMs,
-      units: [characterSpec('gustavo', 'A1', 'A', cellAt(2, 3)), dummy('B1', 'B', cellAt(2, 5))],
+      units: [trapper(), dummy('B1', 'B', cellAt(2, 5))],
     });
     pinInPlace(simulation, 'B1');
     return simulation;
@@ -433,7 +458,7 @@ describe('Gustavo — Mordida de cavalo (armadilha e invocação)', () => {
     const buildSimulation = (starLevel: 1 | 3) =>
       new CombatSimulation({
         seed: 1,
-        units: [characterSpec('gustavo', 'A1', 'A', cellAt(2, 3), starLevel), dummy('B1', 'B', cellAt(2, 5))],
+        units: [trapper(starLevel), dummy('B1', 'B', cellAt(2, 5))],
       });
     const horseHealth = (starLevel: 1 | 3) => {
       const simulation = buildSimulation(starLevel);

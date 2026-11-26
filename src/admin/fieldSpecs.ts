@@ -2,6 +2,8 @@
  * Descrição dos campos do formulário de personagem. O formulário trabalha sobre um objeto JSON simples (o "rascunho"):
  * cada campo diz onde o valor mora (`path`), e a validação de verdade é sempre a do esquema do jogo (`characterSchema`).
  */
+import { DEFAULT_ATTACK } from '@data/schemas/attack';
+import { ATTACK_SHAPES, attackShapeLabel } from '@shared/utils/attackArea';
 
 export type FieldKind = 'text' | 'textarea' | 'number' | 'integer' | 'select' | 'checkbox' | 'color';
 export type PathStep = string | number;
@@ -21,6 +23,8 @@ export interface FieldSpec {
   readonly step?: number;
   /** Campo opcional: vazio remove o valor do rascunho. */
   readonly optional?: boolean;
+  /** O que o jogo usa quando o rascunho não tem o valor; é o que o campo mostra nesse caso. */
+  readonly fallback?: string | number;
   readonly help?: string;
 }
 
@@ -99,9 +103,26 @@ export const BEHAVIOR_FIELDS: readonly FieldSpec[] = [
     path: ['behavior', 'targetPriority'],
     label: 'Prioridade de alvo',
     kind: 'select',
-    options: [option('nearest', 'Mais próximo'), option('lowest_health', 'Menos vida'), option('cluster', 'Maior grupo')],
+    options: [option('nearest', 'Mais próximo'), option('farthest', 'Mais distante'), option('lowest_health', 'Menos vida'), option('cluster', 'Maior grupo')],
   },
   { path: ['behavior', 'preferredDistance'], label: 'Distância preferida (casas)', kind: 'integer', min: 1, max: 10 },
+];
+
+export const ATTACK_SHAPE_OPTIONS: readonly FieldOption[] = ATTACK_SHAPES.map((shape) => option(shape, attackShapeLabel(shape)));
+
+export const ATTACK_FIELDS: readonly FieldSpec[] = [
+  { path: ['attack', 'shape'], label: 'Formato da área', kind: 'select', options: ATTACK_SHAPE_OPTIONS, fallback: DEFAULT_ATTACK.shape, help: 'O comprimento da área é o alcance (em Atributos).' },
+  { path: ['attack', 'maxTargets'], label: 'Inimigos por golpe', kind: 'integer', min: 1, max: 6, fallback: DEFAULT_ATTACK.maxTargets },
+  {
+    path: ['attack', 'splashDamageFraction'],
+    label: 'Dano nos inimigos extras (0–1)',
+    kind: 'number',
+    min: 0,
+    max: 1,
+    step: 0.05,
+    fallback: DEFAULT_ATTACK.splashDamageFraction,
+    help: 'Fração do dano que cada inimigo além do alvo recebe (só vale com 2 ou mais por golpe).',
+  },
 ];
 
 export const ABILITY_FIELDS: readonly FieldSpec[] = [
@@ -148,6 +169,8 @@ export const CAST_FIELDS: readonly FieldSpec[] = [
     options: [option('burst', 'Explosão'), option('projectile', 'Projétil'), option('rain', 'Chuva'), option('aura', 'Aura'), option('none', 'Nenhum')],
   },
   { path: ['ability', 'visual', 'color'], label: 'Cor do efeito', kind: 'color' },
+  { path: ['ability', 'visual', 'icon'], label: 'Ícone da habilidade', kind: 'text', optional: true, help: 'Letra, número ou emoji (até 8 caracteres).' },
+  { path: ['ability', 'visual', 'projectileIcon'], label: 'Ícone do projétil', kind: 'text', optional: true, help: 'Desenhado no lugar do disparo. Vazio = sem ícone.' },
 ];
 
 export const EVOLUTION_FIELDS: readonly FieldSpec[] = [
@@ -165,12 +188,13 @@ export const SPRITE_FIELDS: readonly FieldSpec[] = [
 
 // --- Efeitos da habilidade -------------------------------------------------------------------------
 
-export type EffectType = 'damage' | 'heal' | 'status' | 'place_trap' | 'summon_decoy' | 'registered';
+export type EffectType = 'damage' | 'heal' | 'status' | 'place_trap' | 'summon' | 'summon_decoy' | 'registered';
 
 export const EFFECT_TYPE_OPTIONS: readonly FieldOption[] = [
   option('damage', 'Dano'),
   option('heal', 'Cura'),
   option('status', 'Estado (veneno, sono, lentidão...)'),
+  option('summon', 'Invocação direta'),
   option('place_trap', 'Armadilha que invoca'),
   option('summon_decoy', 'Clone provocador'),
   option('registered', 'Comportamento especial'),
@@ -185,6 +209,21 @@ const targetingFields = (effectPath: readonly PathStep[]): FieldSpec[] => [
   { path: [...effectPath, 'maxTargets'], label: 'Máximo de alvos', kind: 'integer', min: 1, optional: true },
   { path: [...effectPath, 'prioritize'], label: 'Prioridade', kind: 'select', options: PRIORITY_OPTIONS, optional: true },
 ];
+
+/** Campos da criatura invocada, comuns à invocação direta e à armadilha. */
+function summonFields(effectPath: readonly PathStep[]): FieldSpec[] {
+  const at = (...rest: PathStep[]): PathStep[] => [...effectPath, 'summon', ...rest];
+  return [
+    { path: at('name'), label: 'Nome da invocação', kind: 'text', help: 'O sprite dela é enviado na aba Sprites.' },
+    { path: at('count'), label: 'Quantidade invocada', kind: 'integer', min: 1 },
+    { path: at('lifetimeSeconds'), label: 'Duração da invocação (s)', kind: 'number', min: 0.5, step: 0.5 },
+    { path: at('stats', 'health'), label: 'Invocação: vida (1–10)', kind: 'number', min: 1, max: 10, step: 0.5 },
+    { path: at('stats', 'damage'), label: 'Invocação: dano (1–10)', kind: 'number', min: 1, max: 10, step: 0.5 },
+    { path: at('stats', 'attackSpeed'), label: 'Invocação: velocidade de ataque', kind: 'number', min: 1, max: 10, step: 0.5 },
+    { path: at('stats', 'range'), label: 'Invocação: alcance', kind: 'integer', min: 1, max: 10 },
+    { path: at('stats', 'mobility'), label: 'Invocação: mobilidade', kind: 'number', min: 1, max: 10, step: 0.5 },
+  ];
+}
 
 /** Campos de um efeito. `effectPath` aponta para o efeito dentro do rascunho (ex.: `['ability', 'effects', 0]`). */
 export function effectFields(effect: unknown, effectPath: readonly PathStep[]): readonly FieldSpec[] {
@@ -210,15 +249,10 @@ export function effectFields(effect: unknown, effectPath: readonly PathStep[]): 
         { path: at('triggerRadius'), label: 'Raio que dispara a armadilha (casas)', kind: 'integer', min: 0 },
         { path: at('armingSeconds'), label: 'Tempo para armar (s)', kind: 'number', min: 0, step: 0.5 },
         { path: at('lifetimeSeconds'), label: 'Duração da armadilha (s)', kind: 'number', min: 0.5, step: 0.5 },
-        { path: at('summon', 'name'), label: 'Nome da invocação', kind: 'text' },
-        { path: at('summon', 'count'), label: 'Quantidade invocada', kind: 'integer', min: 1 },
-        { path: at('summon', 'lifetimeSeconds'), label: 'Duração da invocação (s)', kind: 'number', min: 0.5, step: 0.5 },
-        { path: at('summon', 'stats', 'health'), label: 'Invocação: vida (1–10)', kind: 'number', min: 1, max: 10, step: 0.5 },
-        { path: at('summon', 'stats', 'damage'), label: 'Invocação: dano (1–10)', kind: 'number', min: 1, max: 10, step: 0.5 },
-        { path: at('summon', 'stats', 'attackSpeed'), label: 'Invocação: velocidade de ataque', kind: 'number', min: 1, max: 10, step: 0.5 },
-        { path: at('summon', 'stats', 'range'), label: 'Invocação: alcance', kind: 'integer', min: 1, max: 10 },
-        { path: at('summon', 'stats', 'mobility'), label: 'Invocação: mobilidade', kind: 'number', min: 1, max: 10, step: 0.5 },
+        ...summonFields(effectPath),
       ];
+    case 'summon':
+      return summonFields(effectPath);
     case 'summon_decoy':
       return [
         { path: at('name'), label: 'Nome do clone', kind: 'text' },
@@ -277,6 +311,8 @@ export function newEffect(type: EffectType): Json {
         lifetimeSeconds: 15,
         summon: { name: 'Invocação', stats: { health: 2, damage: 3, attackSpeed: 5, range: 1, mobility: 5 }, count: 1, lifetimeSeconds: 6 },
       };
+    case 'summon':
+      return { type: 'summon', summon: { name: 'Invocação', stats: { health: 2, damage: 2, attackSpeed: 5, range: 1, mobility: 6 }, count: 1, lifetimeSeconds: 6 } };
     case 'summon_decoy':
       return { type: 'summon_decoy', name: 'Clone', health: 3, lifetimeSeconds: 4, tauntRadius: 3, placementRange: 2 };
     case 'registered':
@@ -325,7 +361,7 @@ export function parseFieldInput(spec: FieldSpec, raw: string | boolean): unknown
     case 'select':
       return raw === '' && spec.optional ? undefined : String(raw);
     default:
-      return String(raw);
+      return spec.optional && String(raw).trim() === '' ? undefined : String(raw);
   }
 }
 

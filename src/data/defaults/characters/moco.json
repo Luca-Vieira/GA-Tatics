@@ -5,8 +5,9 @@
   "description": "Dano imprevisível: cada ataque é uma aposta.",
   "category": "gambler",
   "rarity": "special",
-  "stats": { "health": 6, "damage": 5, "attackSpeed": 5, "range": 3, "mobility": 5 },
+  "stats": { "health": 7, "damage": 5, "attackSpeed": 5, "range": 3, "mobility": 5 },
   "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 2 },
+  "attack": { "shape": "dashed" },
   "ability": {
     "id": "roulette",
     "name": "Estagiário",
@@ -26,6 +27,6 @@
         }
       }
     ],
-    "visual": { "kind": "none", "color": "#fb7185" }
+    "visual": { "kind": "none", "color": "#fb7185", "icon": "🎰", "projectileIcon": "🪙" }
   }
 }

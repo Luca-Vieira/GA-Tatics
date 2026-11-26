@@ -40,19 +40,24 @@ export function findNearestEnemy(unit: CombatUnit, allUnits: readonly CombatUnit
 }
 
 /**
- * Escolhe o alvo segundo o perfil do personagem. A prioridade "lowest_health" e "cluster" só considera inimigos
- * a até (alcance + 2) casas; se não houver nenhum, vale o inimigo mais próximo.
+ * Escolhe o alvo segundo o perfil do personagem, entre os inimigos vivos aceitos por `isEligible`. "nearest" e
+ * "farthest" olham o campo todo; "lowest_health" e "cluster" só consideram inimigos a até (alcance + 2) casas e,
+ * se não houver nenhum, vale o mais próximo.
  */
-export function selectTarget(unit: CombatUnit, allUnits: readonly CombatUnit[]): CombatUnit | null {
+export function selectTarget(unit: CombatUnit, allUnits: readonly CombatUnit[], isEligible: (enemy: CombatUnit) => boolean = () => true): CombatUnit | null {
   const enemies = aliveEnemiesOf(unit, allUnits);
-  const nearestEnemy = pickBest(enemies, (enemy) => [hexDistance(unit.cell, enemy.cell)]);
+  const eligibleEnemies = enemies.filter(isEligible);
+  const nearestEnemy = pickBest(eligibleEnemies, (enemy) => [hexDistance(unit.cell, enemy.cell)]);
   const priority = unit.behavior.targetPriority;
   if (priority === 'nearest' || nearestEnemy === null) {
     return nearestEnemy;
   }
+  if (priority === 'farthest') {
+    return pickBest(eligibleEnemies, (enemy) => [-hexDistance(unit.cell, enemy.cell)]);
+  }
 
   const reach = unit.stats.range + PRIORITY_REACH_MARGIN;
-  const candidates = enemies.filter((enemy) => hexDistance(unit.cell, enemy.cell) <= reach);
+  const candidates = eligibleEnemies.filter((enemy) => hexDistance(unit.cell, enemy.cell) <= reach);
   if (candidates.length === 0) {
     return nearestEnemy;
   }

@@ -33,7 +33,7 @@ describe('modelos de interface', () => {
     const model = buildSynergyModel(game, 'p1', Date.parse('2026-01-01T12:00:00Z'));
     const chaos = model.rows.find((row) => row.name === 'Caos')!;
     expect(chaos).toMatchObject({ count: 2, activeTierIndex: 0, isPreview: false });
-    expect(chaos.effectLines).toEqual(['+6% de dano', '+4% de velocidade de ataque']);
+    expect(chaos.effectLines).toEqual(['+5% de dano', '+3% de velocidade de ataque']);
     expect(chaos.memberNames).toEqual(['Derson', 'Leo', 'Matheus', 'Moço', 'Vinícius']);
     expect(model.rotationLabel).toContain('próxima troca em');
   });

@@ -34,6 +34,6 @@ export function toCombatStats(base: BaseStats, starLevel: StarLevel = 1, starMul
     damage: 10 * base.damage * starMultiplier,
     attacksPerSecond: 0.4 + 0.15 * base.attackSpeed,
     range: base.range,
-    hexesPerSecond: 0.5 + 0.25 * base.mobility,
+    hexesPerSecond: 0.8 + 0.3 * base.mobility,
   };
 }

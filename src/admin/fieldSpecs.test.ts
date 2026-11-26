@@ -60,7 +60,7 @@ describe('campos do formulário', () => {
   it('todo campo fixo aponta para um valor que existe em todos os personagens padrão (ou é opcional)', () => {
     const fixed = [...BASIC_FIELDS, ...STAT_FIELDS, ...BEHAVIOR_FIELDS, ...ABILITY_FIELDS, ...CAST_FIELDS];
     for (const character of DEFAULT_CHARACTERS) {
-      for (const field of fixed) {
+      for (const field of fixed.filter((spec) => !spec.optional)) {
         expect(getAt(character, field.path), `${character.id}: ${field.path.join('.')}`).not.toBeUndefined();
       }
     }

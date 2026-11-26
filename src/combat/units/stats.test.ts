@@ -9,16 +9,16 @@ describe('toCombatStats', () => {
     expect(bixo.damage).toBe(40);
     expect(bixo.attacksPerSecond).toBeCloseTo(0.85);
     expect(bixo.range).toBe(1);
-    expect(bixo.hexesPerSecond).toBeCloseTo(1.25);
+    expect(bixo.hexesPerSecond).toBeCloseTo(1.7);
   });
 
   it('atinge os extremos citados no documento (Leo e João Lucas)', () => {
     const leo = toCombatStats({ health: 3, damage: 9, attackSpeed: 9, range: 1, mobility: 10 });
     expect(leo.attacksPerSecond).toBeCloseTo(1.75);
-    expect(leo.hexesPerSecond).toBeCloseTo(3);
+    expect(leo.hexesPerSecond).toBeCloseTo(3.8);
     const joaoLucas = toCombatStats({ health: 3, damage: 10, attackSpeed: 2, range: 6, mobility: 2 });
     expect(joaoLucas.attacksPerSecond).toBeCloseTo(0.7);
-    expect(joaoLucas.hexesPerSecond).toBeCloseTo(1);
+    expect(joaoLucas.hexesPerSecond).toBeCloseTo(1.4);
   });
 
   it('aplica o multiplicador de estrela só a vida e dano', () => {

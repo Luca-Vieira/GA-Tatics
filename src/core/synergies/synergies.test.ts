@@ -14,7 +14,7 @@ describe('contagem e níveis', () => {
 
     const level2 = summarizeSynergies(['bixo', 'wilian', 'wender', 'marquinhos'], INITIAL_SYNERGY_MAPPING, DEFAULT_SYNERGIES);
     expect(statusOf(level2, 'operacional')).toMatchObject({ count: 4, activeTierIndex: 1, nextThreshold: null });
-    expect(computeBonusesForUnit(level2, 'operacional').resistance).toBeCloseTo(0.09);
+    expect(computeBonusesForUnit(level2, 'operacional').resistance).toBeCloseTo(0.08);
   });
 
   it('3 unidades continuam no nível 1', () => {
@@ -38,7 +38,7 @@ describe('bônus resolvidos', () => {
   it('Operacional: resistência e regeneração', () => {
     const statuses = summarizeSynergies(['bixo', 'wilian'], INITIAL_SYNERGY_MAPPING, DEFAULT_SYNERGIES);
     const bonuses = computeBonusesForUnit(statuses, undefined);
-    expect(bonuses.resistance).toBeCloseTo(0.05);
+    expect(bonuses.resistance).toBeCloseTo(0.04);
     expect(bonuses.regenFraction).toBeCloseTo(0.01);
     expect(bonuses.regenIntervalMs).toBe(3000);
   });
@@ -53,8 +53,8 @@ describe('bônus resolvidos', () => {
   it('Caos: multiplicadores de dano e velocidade de ataque', () => {
     const statuses = summarizeSynergies(['vinicius', 'leo'], INITIAL_SYNERGY_MAPPING, DEFAULT_SYNERGIES);
     const bonuses = computeBonusesForUnit(statuses, undefined);
-    expect(bonuses.damageMultiplier).toBeCloseTo(1.06);
-    expect(bonuses.attackSpeedMultiplier).toBeCloseTo(1.04);
+    expect(bonuses.damageMultiplier).toBeCloseTo(1.05);
+    expect(bonuses.attackSpeedMultiplier).toBeCloseTo(1.03);
   });
 
   it('sem sinergia ativa não há bônus nenhum', () => {
@@ -65,21 +65,21 @@ describe('bônus resolvidos', () => {
   it('"appliesTo: ownSynergy" restringe o bônus às unidades da própria sinergia', () => {
     const restricted = DEFAULT_SYNERGIES.map((synergy) => (synergy.id === 'caos' ? { ...synergy, appliesTo: 'ownSynergy' as const } : synergy));
     const statuses = summarizeSynergies(['vinicius', 'leo'], INITIAL_SYNERGY_MAPPING, restricted);
-    expect(computeBonusesForUnit(statuses, 'caos').damageMultiplier).toBeCloseTo(1.06);
+    expect(computeBonusesForUnit(statuses, 'caos').damageMultiplier).toBeCloseTo(1.05);
     expect(computeBonusesForUnit(statuses, 'gestao').damageMultiplier).toBe(1);
   });
 });
 
-describe('rotação bienal', () => {
+describe('rotação diária', () => {
   const config = DEFAULT_SYNERGY_ROTATION;
   const day = 24 * 60 * 60 * 1000;
   const anchor = Date.parse(config.anchor);
 
-  it('o índice muda a cada 2 dias a partir da âncora', () => {
+  it('o índice muda a cada dia a partir da âncora', () => {
     expect(rotationIndexAt(anchor, config)).toBe(0);
-    expect(rotationIndexAt(anchor + 2 * day - 1, config)).toBe(0);
-    expect(rotationIndexAt(anchor + 2 * day, config)).toBe(1);
-    expect(rotationIndexAt(Date.parse('2026-11-24T12:00:00Z'), config)).toBe(163);
+    expect(rotationIndexAt(anchor + day - 1, config)).toBe(0);
+    expect(rotationIndexAt(anchor + day, config)).toBe(1);
+    expect(rotationIndexAt(Date.parse('2026-11-24T12:00:00Z'), config)).toBe(327);
   });
 
   it('antes da âncora vale a rotação 0', () => {
@@ -87,8 +87,8 @@ describe('rotação bienal', () => {
   });
 
   it('a contagem regressiva chega à próxima fronteira', () => {
-    expect(millisecondsUntilNextRotation(anchor + day, config)).toBe(day);
-    expect(rotationStartMs(3, config)).toBe(anchor + 6 * day);
+    expect(millisecondsUntilNextRotation(anchor + day / 4, config)).toBe((day * 3) / 4);
+    expect(rotationStartMs(3, config)).toBe(anchor + 3 * day);
   });
 
   it('a rotação 0 é a distribuição de lançamento', () => {

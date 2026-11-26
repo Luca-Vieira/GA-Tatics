@@ -1,30 +1,51 @@
 import Phaser from 'phaser';
-import { LocalMatchSession } from '@core/game/LocalMatchSession';
+import { MAXIMUM_PLAYERS, MINIMUM_PLAYERS } from '@core/game/Game';
+import { DEFAULT_LOCAL_PLAYER_COUNT, LocalMatchSession } from '@core/game/LocalMatchSession';
 import { describeRoomModifiers } from '@core/game/roomModifiers';
+import { rotationIndexAt, synergyMappingForIndex } from '@core/synergies/rotation';
+import { DEFAULT_GAME_CONTENT } from '@data/defaults/content';
 import { NO_ROOM_MODIFIERS, ROOM_MODIFIER_CHOICES, type RoomModifiers } from '@data/schemas/roomModifiers';
 import { defaultSocketAddress } from '@shared/utils/serverAddress';
 import { LobbyClient } from '@multiplayer/client/LobbyClient';
 import type { RemoteMatchSession } from '@multiplayer/client/RemoteMatchSession';
 import { ConnectionError, ServerConnection } from '@multiplayer/client/ServerConnection';
-import { MAXIMUM_PLAYER_NAME_LENGTH, MAXIMUM_ROOM_PASSWORD_LENGTH } from '@multiplayer/protocol/clientMessages';
-import { PLAYERS_PER_MATCH, type RoomSummaryView, type RoomVisibility } from '@multiplayer/protocol/serverMessages';
+import { DEFAULT_PLAYERS_PER_ROOM, MAXIMUM_PLAYER_NAME_LENGTH, MAXIMUM_ROOM_PASSWORD_LENGTH } from '@multiplayer/protocol/clientMessages';
+import type { RoomSummaryView, RoomVisibility } from '@multiplayer/protocol/serverMessages';
+import { openCharacterGallery } from '@rendering/gallery';
 import { showReloadNotice } from '../ui/reloadNotice';
 import type { GameSceneData } from './GameScene';
 
 export interface LobbySceneData {
   /** Presente quando o jogador volta ao saguão depois de uma partida em rede. */
   readonly client?: LobbyClient;
+  /** Por que a pessoa foi trazida de volta (ex.: a sala foi encerrada); mostrado uma vez. */
+  notice?: string;
 }
 
 type HubView = 'hub' | 'create';
 
-const SCREEN_CENTER = { x: 640, y: 360 };
 /** De quanto em quanto tempo a lista de salas é pedida de novo enquanto o hub está aberto. */
 const ROOM_LIST_REFRESH_MS = 3000;
 
+/**
+ * O saguão é HTML comum por cima do jogo (e não um elemento do Phaser): assim os campos e botões não encolhem junto
+ * com a tela do jogo no celular e a página rola quando o painel não cabe.
+ */
+const OVERLAY_STYLE = [
+  'position:fixed',
+  'inset:0',
+  'z-index:100',
+  'display:flex',
+  'overflow:auto',
+  'overscroll-behavior:contain',
+  'box-sizing:border-box',
+  'padding:8px',
+  'background:#0b1220',
+].join(';');
 const PANEL_BASE_STYLE = [
   'box-sizing:border-box',
-  'padding:26px',
+  'margin:auto',
+  'padding:clamp(14px,3vw,26px)',
   'background:#16213a',
   'border:2px solid #2f3e5c',
   'border-radius:8px',
@@ -33,13 +54,18 @@ const PANEL_BASE_STYLE = [
   'font-size:15px',
   'display:flex',
   'flex-direction:column',
-  'gap:12px',
-  'max-height:690px',
-  'overflow:auto',
+  'gap:10px',
 ].join(';');
-const INPUT_STYLE = 'padding:9px 10px;border-radius:5px;border:1px solid #3b4d73;background:#0f1a30;color:#e5e7eb;font-size:15px;';
-const BUTTON_STYLE = 'padding:11px 14px;border:0;border-radius:5px;color:#fff;font-size:16px;font-weight:bold;cursor:pointer;';
+/** Altura mínima de tudo o que se toca com o dedo. */
+const TOUCH_TARGET_STYLE = 'min-height:44px;box-sizing:border-box;';
+// Campos com letra de 16px ou mais não fazem o celular dar zoom sozinho ao tocar neles.
+const INPUT_STYLE = `${TOUCH_TARGET_STYLE}width:100%;padding:9px 10px;border-radius:5px;border:1px solid #3b4d73;background:#0f1a30;color:#e5e7eb;font-size:16px;`;
+const BUTTON_STYLE = `${TOUCH_TARGET_STYLE}padding:10px 14px;border:0;border-radius:5px;color:#fff;font-size:16px;font-weight:bold;cursor:pointer;touch-action:manipulation;`;
+const ROW_STYLE = 'display:flex;flex-wrap:wrap;gap:10px;';
 const TAG_STYLE = 'display:inline-block;padding:2px 8px;border-radius:10px;background:#0f1a30;border:1px solid #3b4d73;font-size:12px;color:#fbbf24;margin:2px 4px 0 0;';
+const LABEL_STYLE = 'display:flex;flex-direction:column;gap:4px;color:#94a3b8;font-size:13px;';
+
+const PLAYER_COUNT_CHOICES: readonly number[] = Array.from({ length: MAXIMUM_PLAYERS - MINIMUM_PLAYERS + 1 }, (_, index) => MINIMUM_PLAYERS + index);
 
 /** Rótulos e formato de cada regra especial de sala no formulário de criação. */
 const MODIFIER_FIELDS: readonly { readonly key: keyof RoomModifiers; readonly label: string; readonly format: (value: number) => string }[] = [
@@ -64,12 +90,15 @@ function element<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, style = '', 
 
 /**
  * Tela inicial e hub. Sem conexão: jogar contra bots no navegador ou conectar a um servidor. Conectado: partida rápida,
- * lista de salas públicas, entrar por código (com senha), criar sala (pública ou privada, com senha e regras especiais) e,
- * dentro da sala, esperar o anfitrião iniciar.
+ * lista de salas públicas (para entrar ou assistir), entrar por código (com senha), criar sala (pública ou privada, com
+ * senha, número de jogadores e regras especiais) e, dentro da sala, esperar o anfitrião iniciar. Das telas inicial e do
+ * hub abre-se a consulta de personagens.
  */
 export class LobbyScene extends Phaser.Scene {
   private client: LobbyClient | null = null;
-  private panel: Phaser.GameObjects.DOMElement | null = null;
+  private overlay: HTMLElement | null = null;
+  private closeGallery: (() => void) | null = null;
+  private stopWatchingMatch: (() => void) | null = null;
   private readonly unsubscribers: (() => void)[] = [];
   private refreshTimer: number | null = null;
   private roomListContainer: HTMLElement | null = null;
@@ -85,29 +114,45 @@ export class LobbyScene extends Phaser.Scene {
   private newRoomVisibility: RoomVisibility = 'public';
   private newRoomPassword = '';
   private newRoomModifiers: RoomModifiers = NO_ROOM_MODIFIERS;
+  private newRoomPlayerCount = DEFAULT_PLAYERS_PER_ROOM;
+  private localPlayerCount = DEFAULT_LOCAL_PLAYER_COUNT;
 
   constructor() {
     super('LobbyScene');
   }
 
   init(data: LobbySceneData): void {
-    this.client = data.client?.isConnected ? data.client : null;
-    this.message = '';
+    this.stopWatchingMatch?.();
+    this.stopWatchingMatch = null;
+    // A cena é a mesma a cada volta: se a conexão continua aberta, ela é mantida mesmo sem vir nos dados.
+    const knownClient = data.client ?? this.client;
+    this.client = knownClient?.isConnected ? knownClient : null;
+    this.message = data.notice ?? '';
+    // O Phaser guarda os dados da última abertura; o aviso não pode reaparecer na próxima.
+    data.notice = undefined;
     this.isBusy = false;
     this.hubView = 'hub';
   }
 
   create(): void {
     this.isShown = true;
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.isShown = false;
-      this.stopPolling();
-      this.stopListening();
-    });
+    this.overlay = element('div', OVERLAY_STYLE);
+    document.body.append(this.overlay);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.tearDown());
     if (this.client) {
       this.listenTo(this.client);
+      this.client.refreshRooms();
     }
     this.render();
+  }
+
+  private tearDown(): void {
+    this.isShown = false;
+    this.stopPolling();
+    this.stopListening();
+    this.dismissGallery();
+    this.overlay?.remove();
+    this.overlay = null;
   }
 
   // --- Ligação com o servidor --------------------------------------------------------------------
@@ -152,6 +197,7 @@ export class LobbyScene extends Phaser.Scene {
       }),
       client.onRoomList(() => this.renderRoomList()),
       client.onError((message) => this.setMessage(message, false)),
+      client.onRoomClosed((notice) => this.setMessage(notice, false)),
       client.onMatchStarted((session) => this.startNetworkMatch(client, session)),
       client.onConnectionClosed(() => this.handleConnectionClosed()),
     );
@@ -204,19 +250,36 @@ export class LobbyScene extends Phaser.Scene {
       return;
     }
     const password = this.newRoomPassword.trim();
-    this.client.createRoom(this.playerName.trim(), { visibility: this.newRoomVisibility, password: password || undefined, modifiers: this.newRoomModifiers });
+    this.client.createRoom(this.playerName.trim(), {
+      visibility: this.newRoomVisibility,
+      password: password || undefined,
+      modifiers: this.newRoomModifiers,
+      maximumPlayers: this.newRoomPlayerCount,
+    });
   }
 
   private joinByCode(): void {
-    const code = this.roomCode.trim();
-    if (!this.client || !this.hasValidName()) {
-      return;
+    const code = this.typedRoomCode();
+    if (code && this.client && this.hasValidName()) {
+      this.client.joinRoom(code, this.playerName.trim(), this.roomPassword || undefined);
     }
+  }
+
+  /** Assistir não pede nome: quem assiste não aparece para os jogadores. */
+  private watchByCode(): void {
+    const code = this.typedRoomCode();
+    if (code) {
+      this.client?.spectate(code, this.roomPassword || undefined);
+    }
+  }
+
+  private typedRoomCode(): string | null {
+    const code = this.roomCode.trim();
     if (!/^[A-Za-z]{4}$/.test(code)) {
       this.setMessage('O código da sala tem 4 letras.', false);
-      return;
+      return null;
     }
-    this.client.joinRoom(code, this.playerName.trim(), this.roomPassword || undefined);
+    return code;
   }
 
   /** Entrar numa sala da lista; salas com senha pedem a senha. */
@@ -224,11 +287,25 @@ export class LobbyScene extends Phaser.Scene {
     if (!this.client || !this.hasValidName()) {
       return;
     }
-    const password = room.hasPassword ? window.prompt(`Senha da sala ${room.roomCode}:`) : undefined;
-    if (room.hasPassword && !password) {
-      return;
+    const password = this.askRoomPassword(room);
+    if (password !== null) {
+      this.client.joinRoom(room.roomCode, this.playerName.trim(), password || undefined);
     }
-    this.client.joinRoom(room.roomCode, this.playerName.trim(), password || undefined);
+  }
+
+  private watchListed(room: RoomSummaryView): void {
+    const password = this.askRoomPassword(room);
+    if (password !== null) {
+      this.client?.spectate(room.roomCode, password || undefined);
+    }
+  }
+
+  /** Texto vazio para salas sem senha; `null` se a pessoa desistiu de digitar. */
+  private askRoomPassword(room: RoomSummaryView): string | null {
+    if (!room.hasPassword) {
+      return '';
+    }
+    return window.prompt(`Senha da sala ${room.roomCode}:`) || null;
   }
 
   private leaveRoom(): void {
@@ -238,11 +315,14 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private startLocalMatch(): void {
-    const data: GameSceneData = { session: new LocalMatchSession(), playAgain: () => new LocalMatchSession(), endButtonLabel: 'Jogar novamente' };
+    const playerCount = this.localPlayerCount;
+    const createSession = () => new LocalMatchSession({ playerCount });
+    const data: GameSceneData = { session: createSession(), playAgain: createSession, endButtonLabel: 'Jogar novamente' };
     this.scene.start('GameScene', data);
   }
 
   private startNetworkMatch(client: LobbyClient, session: RemoteMatchSession): void {
+    this.watchForClosedRoom(client, session);
     const data: GameSceneData = {
       session,
       playAgain: (gameScene) => {
@@ -254,6 +334,50 @@ export class LobbyScene extends Phaser.Scene {
     this.scene.start('GameScene', data);
   }
 
+  /** Se a sala for encerrada com a partida na tela, volta ao hub explicando o motivo. */
+  private watchForClosedRoom(client: LobbyClient, session: RemoteMatchSession): void {
+    this.stopWatchingMatch = client.onRoomClosed((notice) => {
+      session.dispose();
+      this.game.scene.stop('GameScene');
+      this.game.scene.start('LobbyScene', { client, notice } satisfies LobbySceneData);
+    });
+  }
+
+  // --- Consulta de personagens ---------------------------------------------------------------------
+
+  private openGallery(): void {
+    if (this.closeGallery) {
+      return;
+    }
+    const client = this.client;
+    const content = client ? client.content : DEFAULT_GAME_CONTENT;
+    const synergyIds = content.synergies.map((synergy) => synergy.id);
+    const rotationIndex = rotationIndexAt(Date.now(), content.rotation);
+    // Com a galeria aberta o saguão sai de cena, para não receber cliques nem toques.
+    this.setOverlayVisible(false);
+    this.closeGallery = openCharacterGallery({
+      content,
+      synergyMapping: synergyMappingForIndex(rotationIndex, content.rotation, content.initialSynergyMapping, synergyIds),
+      spriteUrlOf: client ? (path) => `${client.spriteBaseUrl}${path}` : undefined,
+      onClose: () => {
+        this.closeGallery = null;
+        this.setOverlayVisible(true);
+      },
+    });
+  }
+
+  private dismissGallery(): void {
+    const close = this.closeGallery;
+    this.closeGallery = null;
+    close?.();
+  }
+
+  private setOverlayVisible(isVisible: boolean): void {
+    if (this.overlay) {
+      this.overlay.style.display = isVisible ? 'flex' : 'none';
+    }
+  }
+
   // --- Tela ---------------------------------------------------------------------------------------
 
   private setMessage(message: string, isBusy: boolean): void {
@@ -263,10 +387,11 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private render(): void {
-    if (!this.isShown) {
+    const overlay = this.overlay;
+    if (!this.isShown || !overlay) {
       return;
     }
-    this.panel?.destroy();
+    const scrollTop = overlay.scrollTop;
     this.roomListContainer = null;
     const client = this.client;
     let content: HTMLElement;
@@ -284,23 +409,27 @@ export class LobbyScene extends Phaser.Scene {
       this.stopPolling();
       content = this.buildEntryPanel();
     }
-    // O Phaser controla o `display` do elemento raiz; por isso o painel (que usa flex) vai dentro de um invólucro.
-    const wrapper = element('div');
-    wrapper.append(content);
-    this.panel = this.add.dom(SCREEN_CENTER.x, SCREEN_CENTER.y, wrapper);
+    overlay.replaceChildren(content);
     if (this.hubView === 'hub' && client && !client.isInRoom) {
       this.renderRoomList();
     }
+    overlay.scrollTop = scrollTop;
   }
 
   private panelStyle(width: number): string {
-    return `${PANEL_BASE_STYLE};width:${width}px`;
+    return `${PANEL_BASE_STYLE};width:min(${width}px,100%)`;
   }
 
   private buildEntryPanel(): HTMLElement {
     const panel = element('div', this.panelStyle(460));
     panel.append(element('div', 'font-size:28px;font-weight:bold;text-align:center;', 'Merge do Escritório'));
-    panel.append(this.buildButton('Jogar contra bots (neste navegador)', '#16a34a', () => this.startLocalMatch()));
+    const localRow = element('div', `${ROW_STYLE}align-items:flex-end;`);
+    const countField = this.buildPlayerCountField(this.localPlayerCount, (count) => (this.localPlayerCount = count));
+    countField.style.flex = '1 1 110px';
+    const localButton = this.buildButton('Jogar contra bots (neste navegador)', '#16a34a', () => this.startLocalMatch());
+    localButton.style.flex = '3 1 220px';
+    localRow.append(countField, localButton);
+    panel.append(localRow, this.buildButton('Personagens', '#7c3aed', () => this.openGallery()));
     panel.append(element('div', 'border-top:1px solid #2f3e5c;margin:6px 0;'));
     panel.append(element('div', 'font-weight:bold;', 'Jogar em rede'));
     panel.append(this.buildField('Seu nome', this.playerName, (value) => (this.playerName = value), MAXIMUM_PLAYER_NAME_LENGTH));
@@ -312,30 +441,32 @@ export class LobbyScene extends Phaser.Scene {
 
   private buildHubPanel(): HTMLElement {
     const panel = element('div', this.panelStyle(720));
-    const header = element('div', 'display:flex;justify-content:space-between;align-items:center;gap:12px;');
-    header.append(element('div', 'font-size:24px;font-weight:bold;', 'Salas'), this.buildButton('Desconectar', '#334155', () => this.disconnect()));
+    const header = element('div', `${ROW_STYLE}justify-content:space-between;align-items:center;`);
+    const headerActions = element('div', ROW_STYLE);
+    headerActions.append(this.buildButton('Personagens', '#7c3aed', () => this.openGallery()), this.buildButton('Desconectar', '#334155', () => this.disconnect()));
+    header.append(element('div', 'font-size:24px;font-weight:bold;', 'Salas'), headerActions);
     panel.append(header);
 
     const nameRow = this.buildField('Seu nome', this.playerName, (value) => (this.playerName = value), MAXIMUM_PLAYER_NAME_LENGTH);
     panel.append(nameRow);
 
-    const actions = element('div', 'display:flex;gap:10px;');
+    const actions = element('div', ROW_STYLE);
     const quick = this.buildButton('⚡ Partida rápida', '#16a34a', () => this.quickMatch());
-    quick.style.flex = '1';
+    quick.style.flex = '1 1 180px';
     const create = this.buildButton('Criar sala', '#2563eb', () => {
       this.hubView = 'create';
       this.render();
     });
-    create.style.flex = '1';
+    create.style.flex = '1 1 180px';
     actions.append(quick, create);
     panel.append(actions);
 
-    const codeRow = element('div', 'display:flex;gap:10px;align-items:flex-end;');
+    const codeRow = element('div', `${ROW_STYLE}align-items:flex-end;`);
     const codeField = this.buildField('Código da sala', this.roomCode, (value) => (this.roomCode = value), 4, true);
-    codeField.style.flex = '1';
+    codeField.style.flex = '1 1 120px';
     const passwordField = this.buildField('Senha (se tiver)', this.roomPassword, (value) => (this.roomPassword = value), MAXIMUM_ROOM_PASSWORD_LENGTH, false, 'password');
-    passwordField.style.flex = '1';
-    codeRow.append(codeField, passwordField, this.buildButton('Entrar', '#2563eb', () => this.joinByCode()));
+    passwordField.style.flex = '1 1 140px';
+    codeRow.append(codeField, passwordField, this.buildButton('Entrar', '#2563eb', () => this.joinByCode()), this.buildButton('Assistir', '#334155', () => this.watchByCode()));
     panel.append(codeRow);
 
     panel.append(element('div', 'font-weight:bold;margin-top:4px;', 'Salas públicas'));
@@ -365,11 +496,12 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private buildRoomRow(room: RoomSummaryView): HTMLElement {
-    const canJoin = room.status === 'lobby' && room.playerCount < room.maximumPlayers;
-    const row = element('div', 'display:flex;gap:10px;align-items:center;padding:9px 11px;border-radius:6px;background:#0f1a30;');
-    const info = element('div', 'flex:1;min-width:0;');
+    const row = element('div', `${ROW_STYLE}align-items:center;padding:9px 11px;border-radius:6px;background:#0f1a30;`);
+    const info = element('div', 'flex:1 1 200px;min-width:0;');
     const title = element('div', 'font-weight:bold;', `${room.hasPassword ? '🔒 ' : ''}Sala de ${room.hostName}`);
-    const meta = element('div', 'font-size:12px;color:#94a3b8;', `${room.roomCode} · ${room.playerCount}/${room.maximumPlayers} jogadores · ${room.status === 'playing' ? 'em partida' : 'aguardando'}`);
+    const status = room.status === 'playing' ? 'em partida' : 'aguardando';
+    const watching = room.spectatorCount > 0 ? ` · ${room.spectatorCount} assistindo` : '';
+    const meta = element('div', 'font-size:12px;color:#94a3b8;', `${room.roomCode} · ${room.playerCount}/${room.maximumPlayers} jogadores · ${status}${watching}`);
     info.append(title, meta);
     const rules = describeRoomModifiers(room.modifiers);
     if (rules.length > 0) {
@@ -377,11 +509,24 @@ export class LobbyScene extends Phaser.Scene {
       rules.forEach((rule) => tags.append(element('span', TAG_STYLE, rule)));
       info.append(tags);
     }
-    const join = this.buildButton(room.status === 'playing' ? 'Em partida' : canJoin ? 'Entrar' : 'Cheia', '#2563eb', () => this.joinListed(room));
-    join.disabled = !canJoin;
-    join.style.opacity = canJoin ? '1' : '0.5';
-    row.append(info, join);
+    row.append(info, room.status === 'playing' ? this.buildWatchButton(room) : this.buildJoinButton(room));
     return row;
+  }
+
+  private buildJoinButton(room: RoomSummaryView): HTMLButtonElement {
+    const canJoin = room.playerCount < room.maximumPlayers;
+    return this.buildListButton(canJoin ? 'Entrar' : 'Cheia', '#2563eb', canJoin, () => this.joinListed(room));
+  }
+
+  private buildWatchButton(room: RoomSummaryView): HTMLButtonElement {
+    return this.buildListButton(room.canBeWatched ? 'Assistir' : 'Plateia cheia', '#7c3aed', room.canBeWatched, () => this.watchListed(room));
+  }
+
+  private buildListButton(label: string, color: string, isEnabled: boolean, onClick: () => void): HTMLButtonElement {
+    const button = this.buildButton(label, color, onClick);
+    button.disabled = !isEnabled;
+    button.style.opacity = isEnabled ? '1' : '0.5';
+    return button;
   }
 
   private buildCreatePanel(): HTMLElement {
@@ -394,7 +539,7 @@ export class LobbyScene extends Phaser.Scene {
       { value: 'public' as const, label: 'Pública: aparece na lista de salas' },
       { value: 'private' as const, label: 'Privada: só entra quem tiver o código' },
     ]) {
-      const label = element('label', 'display:flex;gap:8px;align-items:center;cursor:pointer;');
+      const label = element('label', `${TOUCH_TARGET_STYLE}display:flex;gap:8px;align-items:center;cursor:pointer;`);
       const radio = element('input');
       radio.type = 'radio';
       radio.name = 'visibilidade';
@@ -407,29 +552,25 @@ export class LobbyScene extends Phaser.Scene {
     }
     panel.append(visibility);
 
+    panel.append(this.buildPlayerCountField(this.newRoomPlayerCount, (count) => (this.newRoomPlayerCount = count)));
+    panel.append(element('div', 'font-size:12px;color:#94a3b8;', 'As vagas que ninguém ocupar são preenchidas por bots.'));
+
     panel.append(this.buildField('Senha da sala (opcional)', this.newRoomPassword, (value) => (this.newRoomPassword = value), MAXIMUM_ROOM_PASSWORD_LENGTH, false, 'password'));
 
     panel.append(element('div', 'font-weight:bold;margin-top:6px;', 'Regras da sala'));
-    const grid = element('div', 'display:grid;grid-template-columns:1fr 1fr;gap:10px;');
+    const grid = element('div', 'display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;');
     for (const field of MODIFIER_FIELDS) {
-      const select = element('select', INPUT_STYLE);
-      for (const value of ROOM_MODIFIER_CHOICES[field.key]) {
-        const option = element('option', '', field.format(value));
-        option.value = String(value);
-        select.append(option);
-      }
-      select.value = String(this.newRoomModifiers[field.key]);
-      select.addEventListener('change', () => {
-        this.newRoomModifiers = { ...this.newRoomModifiers, [field.key]: Number(select.value) };
-      });
-      const wrapper = element('label', 'display:flex;flex-direction:column;gap:4px;color:#94a3b8;font-size:13px;', field.label);
-      wrapper.append(select);
-      grid.append(wrapper);
+      const options = ROOM_MODIFIER_CHOICES[field.key].map((value) => ({ value, label: field.format(value) }));
+      grid.append(
+        this.buildNumberSelect(field.label, options, this.newRoomModifiers[field.key], (value) => {
+          this.newRoomModifiers = { ...this.newRoomModifiers, [field.key]: value };
+        }),
+      );
     }
     panel.append(grid);
     panel.append(element('div', 'font-size:12px;color:#94a3b8;', 'As regras valem para todos da sala (bots inclusive) e aparecem na lista de salas.'));
 
-    const actions = element('div', 'display:flex;gap:10px;margin-top:6px;');
+    const actions = element('div', `${ROW_STYLE}margin-top:6px;`);
     const create = this.buildButton('Criar sala', '#16a34a', () => this.createRoom());
     create.style.flex = '1';
     actions.append(this.buildButton('Voltar', '#334155', () => {
@@ -442,7 +583,7 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private buildRoomPanel(client: LobbyClient): HTMLElement {
-    const { roomCode, status, members, visibility, hasPassword, modifiers } = client.state;
+    const { roomCode, status, members, visibility, hasPassword, modifiers, maximumPlayers } = client.state;
     const panel = element('div', this.panelStyle(480));
     panel.append(element('div', 'font-size:14px;color:#94a3b8;text-align:center;', visibility === 'private' ? 'Sala privada: passe o código a quem for jogar' : 'Código da sala (passe aos outros jogadores)'));
     panel.append(element('div', 'font-size:44px;font-weight:bold;letter-spacing:10px;text-align:center;color:#fbbf24;', roomCode ?? ''));
@@ -459,7 +600,7 @@ export class LobbyScene extends Phaser.Scene {
       const label = `${member.name}${isYou ? ' (você)' : ''}${member.isHost ? ' · anfitrião' : ''}${member.connected ? '' : ' · desconectado'}`;
       list.append(element('div', `padding:8px 10px;border-radius:5px;background:#0f1a30;${member.connected ? '' : 'opacity:0.5;'}`, label));
     });
-    const freeSeats = PLAYERS_PER_MATCH - members.length;
+    const freeSeats = maximumPlayers - members.length;
     if (freeSeats > 0) {
       list.append(element('div', 'padding:8px 10px;color:#94a3b8;', `${freeSeats} ${freeSeats === 1 ? 'vaga será preenchida' : 'vagas serão preenchidas'} por bots`));
     }
@@ -477,8 +618,27 @@ export class LobbyScene extends Phaser.Scene {
     return panel;
   }
 
+  private buildPlayerCountField(value: number, onChange: (count: number) => void): HTMLElement {
+    const options = PLAYER_COUNT_CHOICES.map((count) => ({ value: count, label: `${count} jogadores` }));
+    return this.buildNumberSelect('Jogadores', options, value, onChange);
+  }
+
+  private buildNumberSelect(label: string, options: readonly { readonly value: number; readonly label: string }[], value: number, onChange: (value: number) => void): HTMLElement {
+    const select = element('select', INPUT_STYLE);
+    for (const choice of options) {
+      const option = element('option', '', choice.label);
+      option.value = String(choice.value);
+      select.append(option);
+    }
+    select.value = String(value);
+    select.addEventListener('change', () => onChange(Number(select.value)));
+    const wrapper = element('label', LABEL_STYLE, label);
+    wrapper.append(select);
+    return wrapper;
+  }
+
   private buildField(label: string, value: string, onInput: (value: string) => void, maximumLength: number, isUppercase = false, type = 'text'): HTMLElement {
-    const wrapper = element('label', 'display:flex;flex-direction:column;gap:4px;color:#94a3b8;font-size:13px;', label);
+    const wrapper = element('label', LABEL_STYLE, label);
     const input = element('input', INPUT_STYLE);
     input.type = type;
     input.value = value;

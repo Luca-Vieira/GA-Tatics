@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOARD_CELLS, isInsideBoard, mirrorCell } from '../constants/board';
+import { BOARD_CELLS, cellsOfSide, isInsideBoard, mirrorCell } from '../constants/board';
 import { createBoardProjection, flipBoardProjection, GROUND_TILT } from './boardProjection';
 
 const SCREEN_CENTER = { x: 640, y: 400 };
@@ -65,6 +65,37 @@ describe('createBoardProjection', () => {
   });
 });
 
+describe('tabuleiro deitado', () => {
+  const projection = createBoardProjection(SCREEN_CENTER);
+
+  it('o lado B, de quem vê, fica à esquerda e o lado A à direita', () => {
+    for (const cell of cellsOfSide('B')) {
+      expect(projection.cellToGround(cell).x).toBeLessThan(SCREEN_CENTER.x);
+    }
+    for (const cell of cellsOfSide('A')) {
+      expect(projection.cellToGround(cell).x).toBeGreaterThan(SCREEN_CENTER.x);
+    }
+  });
+
+  it('é bem mais largo do que alto', () => {
+    const grounds = BOARD_CELLS.map((cell) => projection.cellToGround(cell));
+    const widthSpan = Math.max(...grounds.map((ground) => ground.x)) - Math.min(...grounds.map((ground) => ground.x));
+    const heightSpan = Math.max(...grounds.map((ground) => ground.y)) - Math.min(...grounds.map((ground) => ground.y));
+    expect(widthSpan).toBeGreaterThan(heightSpan * 2);
+  });
+
+  it('é uma rotação (não um espelho) do tabuleiro lógico', () => {
+    const origin = projection.cellToGround({ q: 0, r: 0 });
+    const alongRow = projection.cellToGround({ q: 1, r: 0 });
+    const towardsB = projection.cellToGround({ q: -1, r: 2 });
+    // Andar numa linha lógica desce na tela; avançar rumo às linhas do lado B vai para a esquerda.
+    expect(alongRow.y).toBeGreaterThan(origin.y);
+    expect(alongRow.x).toBeCloseTo(origin.x);
+    expect(towardsB.x).toBeLessThan(origin.x);
+    expect(towardsB.y).toBeCloseTo(origin.y);
+  });
+});
+
 describe('flipBoardProjection', () => {
   const projection = createBoardProjection(SCREEN_CENTER);
   const flipped = flipBoardProjection(projection);
@@ -78,9 +109,10 @@ describe('flipBoardProjection', () => {
     }
   });
 
-  it('o lado A passa a ocupar a metade de baixo da tela', () => {
-    const rowA = flipped.cellToGround(BOARD_CELLS[0]!);
-    expect(rowA.y).toBeGreaterThan(SCREEN_CENTER.y);
+  it('o lado A passa a ocupar a metade esquerda da tela', () => {
+    for (const cell of cellsOfSide('A')) {
+      expect(flipped.cellToGround(cell).x).toBeLessThan(SCREEN_CENTER.x);
+    }
   });
 
   it('converte a posição de volta para a mesma casa', () => {

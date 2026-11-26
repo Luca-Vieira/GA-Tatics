@@ -2,32 +2,29 @@
   "id": "gustavo",
   "name": "Gustavo",
   "archetype": "Engenheiro",
-  "description": "Utilidade e invocação. Planta armadilhas que soltam cavalos.",
+  "description": "Utilidade e invocação. Chama cavalos para lutarem por ele.",
   "category": "utility",
   "rarity": "rare",
-  "stats": { "health": 5, "damage": 5, "attackSpeed": 4, "range": 3, "mobility": 3 },
+  "stats": { "health": 5, "damage": 5, "attackSpeed": 4, "range": 2, "mobility": 3 },
   "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 2 },
   "ability": {
-    "id": "horse_bite_mine",
+    "id": "horse_call",
     "name": "Mordida de cavalo",
-    "description": "Mina: instala uma armadilha que, ao ser ativada, invoca pequenos cavalos que perseguem e mordem os inimigos.",
+    "description": "Invoca na hora 2 pequenos cavalos junto dele, que perseguem e mordem os inimigos por 6 segundos.",
     "activation": { "type": "cooldown", "requires": "always" },
-    "cooldownSeconds": 13,
-    "cast": { "target": "current_target", "range": 3 },
+    "cooldownSeconds": 15,
+    "cast": { "target": "self", "range": 0 },
     "effects": [
       {
-        "type": "place_trap",
-        "triggerRadius": 1,
-        "armingSeconds": 0.5,
-        "lifetimeSeconds": 15,
+        "type": "summon",
         "summon": {
           "name": "Cavalo",
-          "stats": { "health": 2, "damage": 3, "attackSpeed": 6, "range": 1, "mobility": 7 },
+          "stats": { "health": 2, "damage": 2, "attackSpeed": 6, "range": 1, "mobility": 7 },
           "count": 2,
           "lifetimeSeconds": 6
         }
       }
     ],
-    "visual": { "kind": "burst", "color": "#a16207" }
+    "visual": { "kind": "burst", "color": "#a16207", "icon": "🐴", "projectileIcon": "🔨" }
   }
 }

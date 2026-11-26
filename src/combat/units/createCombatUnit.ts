@@ -1,4 +1,7 @@
+import { auxiliarySpriteKeyOf } from '@data/auxiliarySprites';
+import { DEFAULT_ATTACK } from '@data/schemas/attack';
 import type { BoardSide } from '@shared/constants/board';
+import { DEFAULT_ATTACK_SWEEP, defaultFacingOf } from '@shared/utils/attackArea';
 import type { Hex } from '@shared/utils/hex';
 import { INITIAL_ABILITY_DELAY_MS } from '../engine/constants';
 import { NO_BONUSES } from './bonuses';
@@ -23,6 +26,8 @@ export function createCombatUnit(spec: UnitSpec): CombatUnit {
     stats,
     behavior: spec.behavior ?? DEFAULT_BEHAVIOR,
     ability: spec.ability ?? null,
+    attack: spec.attack ?? DEFAULT_ATTACK,
+    auxiliarySpriteKey: spec.isStructure ? auxiliarySpriteKeyOf(spec.name) : null,
     starLevel,
     starMultiplier: starMultipliers[starLevel],
     cell: spec.cell,
@@ -30,6 +35,9 @@ export function createCombatUnit(spec: UnitSpec): CombatUnit {
     resistance: bonuses.resistance,
     alive: true,
     targetId: null,
+    facing: defaultFacingOf(spec.side),
+    sweep: DEFAULT_ATTACK_SWEEP,
+    hasReachedTarget: false,
     nextAttackAtMs: 0,
     nextMoveAtMs: 0,
     abilityReadyAtMs: INITIAL_ABILITY_DELAY_MS,
@@ -76,6 +84,7 @@ export function createSummonUnit(request: SummonRequest): CombatUnit {
     ...createCombatUnit({ id: request.id, name: request.name, side: request.side, cell: request.cell, stats: request.stats }),
     stats,
     health: stats.maxHealth,
+    auxiliarySpriteKey: auxiliarySpriteKeyOf(request.name),
     starMultiplier: request.starMultiplier,
     isSummon: true,
     isDecoy: request.decoyTauntRadius !== undefined,

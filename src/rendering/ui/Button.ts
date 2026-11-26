@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, FONT_FAMILY, UI_DEPTH } from './theme';
+import { addText, COLORS, UI_DEPTH } from './theme';
 
 export interface ButtonOptions {
   readonly x: number;
@@ -13,12 +13,12 @@ export interface ButtonOptions {
   readonly fontSize?: number;
 }
 
-/** Botão retangular simples: fundo, texto e clique. Fica acima de tudo na interface. */
+/** Botão retangular simples: fundo, texto e clique (ou toque). Fica acima de tudo na interface. */
 export class Button {
   private readonly background: Phaser.GameObjects.Rectangle;
   private readonly label: Phaser.GameObjects.Text;
-  private readonly color: number;
-  private readonly hoverColor: number;
+  private color: number;
+  private hoverColor: number;
   private isEnabled = true;
 
   constructor(
@@ -33,14 +33,12 @@ export class Button {
       .setStrokeStyle(2, 0xffffff, 0.25)
       .setDepth(UI_DEPTH)
       .setInteractive({ useHandCursor: true });
-    this.label = scene.add
-      .text(options.x + options.width / 2, options.y + options.height / 2, options.label, {
-        fontFamily: FONT_FAMILY,
-        fontSize: `${options.fontSize ?? 16}px`,
-        color: '#ffffff',
-        fontStyle: 'bold',
-        align: 'center',
-      })
+    this.label = addText(scene, options.x + options.width / 2, options.y + options.height / 2, options.label, {
+      fontSize: `${options.fontSize ?? 16}px`,
+      color: '#ffffff',
+      fontStyle: 'bold',
+      align: 'center',
+    })
       .setOrigin(0.5)
       .setDepth(UI_DEPTH + 1);
 
@@ -58,8 +56,15 @@ export class Button {
   }
 
   setEnabled(isEnabled: boolean): void {
-    this.isEnabled = isEnabled;
-    this.paint(false);
+    if (isEnabled !== this.isEnabled) {
+      this.isEnabled = isEnabled;
+      this.paint(false);
+    }
+  }
+
+  setPosition(x: number, y: number): void {
+    this.background.setPosition(x, y);
+    this.label.setPosition(x + this.options.width / 2, y + this.options.height / 2);
   }
 
   /** Muda a profundidade para o botão ficar acima de telas que cobrem a interface. */
@@ -69,6 +74,9 @@ export class Button {
   }
 
   setVisible(isVisible: boolean): void {
+    if (isVisible === this.background.visible) {
+      return;
+    }
     this.background.setVisible(isVisible);
     this.label.setVisible(isVisible);
     if (isVisible) {

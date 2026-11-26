@@ -1,9 +1,14 @@
 import { z } from 'zod';
+import { auxiliarySpriteSlotsOf } from '@data/auxiliarySprites';
 import { statusKindSchema } from '@data/schemas/ability';
+import { attackSchema, DEFAULT_ATTACK } from '@data/schemas/attack';
 import { characterSchema } from '@data/schemas/character';
 import { MAXIMUM_SYNERGY_COUNT, MINIMUM_SYNERGY_COUNT, type GameContent } from '@data/schemas/content';
 import { MINIMUM_CHARACTERS_PER_SYNERGY, synergySchema } from '@data/schemas/synergy';
+import { DEFAULT_COMBAT_TIME_LIMIT_MS } from '@combat/engine/constants';
 import { HEALTH_PER_POINT, STAR_MULTIPLIERS, toCombatStats } from '@combat/units/stats';
+import { ATTACK_SHAPES, attackShapeLabel, describeAttackArea } from '@shared/utils/attackArea';
+import { BOARD_COLUMNS, BOARD_ROWS } from '@shared/constants/board';
 import { MAXIMUM_SPRITE_BYTES, MAXIMUM_SPRITE_DIMENSION } from './spriteFile';
 import { newActivation, newEffect, newRegisteredBehavior, newSynergyEffect, newSynergyTier, SYNERGY_EFFECT_TYPE_OPTIONS, type EffectType, type SynergyEffectType } from './fieldSpecs';
 
@@ -65,6 +70,12 @@ const EFFECT_DESCRIPTIONS: Readonly<Record<EffectType, { description: string; fi
       summon: '{ name, stats (mesma escala 1–10 dos personagens), count (inteiro ≥ 1), lifetimeSeconds (> 0) }.',
     },
   },
+  summon: {
+    description: 'Invoca criaturas na hora, nas casas livres junto de quem usou a habilidade. Elas perseguem e atacam por um tempo, escalam com a estrela de quem invocou e não seguram o combate. O sprite de cada invocação é enviado no painel (sprites auxiliares).',
+    fields: {
+      summon: '{ name, stats (mesma escala 1–10 dos personagens), count (inteiro ≥ 1), lifetimeSeconds (> 0) }.',
+    },
+  },
   summon_decoy: {
     description: 'Cria um clone provocador perto de quem usou a habilidade (na casa livre mais próxima do alvo). O clone não ataca nem anda, mas os inimigos que estiverem a até tauntRadius casas dele passam a atacá-lo. Dura lifetimeSeconds ou até ser destruído; não segura o combate.',
     fields: {
@@ -101,6 +112,39 @@ function statConversionTable(): Record<string, Record<string, number>> {
   return table;
 }
 
+/** Alcance usado só para descrever cada formato de ataque. */
+const EXAMPLE_ATTACK_RANGE = 3;
+
+function basicAttackReference(): Record<string, unknown> {
+  return {
+    campo: 'attack (opcional): { shape, maxTargets, splashDamageFraction }. Sem ele, o personagem ataca em círculo, um inimigo por golpe.',
+    orientacao: 'O ataque se vira para o alvo, para a esquerda ou para a direita do tabuleiro; o comprimento da área é o alcance dos atributos.',
+    formatos: Object.fromEntries(ATTACK_SHAPES.map((shape) => [shape, { nome: attackShapeLabel(shape), descricao: describeAttackArea(shape, EXAMPLE_ATTACK_RANGE) }])),
+    maxTargets: 'inteiro de 1 a 6: quantos inimigos dentro da área cada golpe acerta (o alvo é o primeiro).',
+    splashDamageFraction: 'de 0 a 1: fração do dano que cada inimigo além do alvo recebe.',
+    padrao: DEFAULT_ATTACK,
+    jsonSchema: z.toJSONSchema(attackSchema),
+  };
+}
+
+function boardAndMatchReference(content: GameContent): Record<string, unknown> {
+  const { shop, rounds, tower } = content.config;
+  return {
+    tabuleiro: `Deitado na tela: ${BOARD_ROWS} casas de comprimento (${BOARD_ROWS / 2} por lado) por ${BOARD_COLUMNS} de largura.`,
+    tempoLimiteDoCombate: `${DEFAULT_COMBAT_TIME_LIMIT_MS / 1000} segundos (modificadores de sala podem aumentar).`,
+    loja: `${shop.offerSize} ofertas por vez; reserva com ${rounds.benchSize} vagas.`,
+    torre: `Custa ${tower.cost} moedas e rende ${tower.incomePerRound} por rodada enquanto está de pé no tabuleiro. Se for destruída, some e paga ${tower.compensationOnLoss} moedas uma única vez, no início da rodada seguinte.`,
+  };
+}
+
+function auxiliarySpriteReference(content: GameContent): Record<string, unknown> {
+  return {
+    descricao: 'Sprites do que não é personagem: a torre, as invocações e os clones. A chave vem do nome da invocação (sem acentos, minúsculas).',
+    comoEnviar: 'Pela aba "Sprites e ícones" do painel. Sem sprite, o jogo usa o desenho provisório.',
+    chavesDoConteudoAtual: auxiliarySpriteSlotsOf(content.characters),
+  };
+}
+
 /** Cópia JSON de um personagem do conteúdo, para servir de exemplo (sem sprite). */
 function exampleCharacter(content: GameContent, id: string): unknown {
   const character = content.characters.find((candidate) => candidate.id === id);
@@ -134,7 +178,7 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
       '6. Meça o balanceamento (npm test e npm run sim): vitórias por personagem devem ficar entre 42% e 58% (times de 5).',
     ],
     personagem: {
-      descricao: 'Objeto estrito: campos desconhecidos são recusados. Campos opcionais: sprite, active (padrão true), visual, evolution.',
+      descricao: 'Objeto estrito: campos desconhecidos são recusados. Campos opcionais: sprite, active (padrão true), attack, visual, evolution.',
       jsonSchema: z.toJSONSchema(characterSchema),
     },
     atributos: {
@@ -143,8 +187,8 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
         vidaDeJogo: `${HEALTH_PER_POINT} × vida × multiplicador da estrela`,
         danoDeJogo: '10 × dano × multiplicador da estrela',
         ataquesPorSegundo: '0,4 + 0,15 × velocidade de ataque',
-        casasPorSegundo: '0,5 + 0,25 × mobilidade',
-        alcance: 'distância em casas ≤ alcance (a mesma área que o jogo destaca ao selecionar a unidade)',
+        casasPorSegundo: '0,8 + 0,3 × mobilidade',
+        alcance: 'comprimento, em casas, da área de ataque; o formato dela vem de "ataqueBasico" (é a área que o jogo destaca ao selecionar a unidade)',
       },
       multiplicadoresDeEstrela: STAR_MULTIPLIERS,
       tabela: statConversionTable(),
@@ -152,13 +196,16 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
     comportamento: {
       movement: { chase: 'persegue o inimigo mais próximo', frontline: 'avança até a linha de frente', kite: 'mantém distância (usa preferredDistance)' },
       targetPriority: {
-        nearest: 'o inimigo mais próximo',
+        nearest: 'o inimigo mais próximo do campo todo (padrão)',
+        farthest: 'o inimigo mais distante do campo todo (só troca por um mais ao alcance depois de alcançá-lo)',
         lowest_health: 'entre os inimigos a até alcance + 2 casas, o de menor vida',
         cluster: 'entre os inimigos a até alcance + 2 casas, o que tem mais inimigos em volta',
       },
       preferredDistance: 'inteiro ≥ 1: distância que tenta manter do inimigo mais próximo (recua se estiver mais perto).',
-      observacao: 'Um clone provocador (efeito summon_decoy) inimigo por perto tem prioridade sobre qualquer escolha de alvo.',
+      observacao: 'Um clone provocador (efeito summon_decoy) inimigo por perto tem prioridade sobre qualquer escolha de alvo. Enquanto houver inimigo vivo, ninguém fica parado sem alvo: se o alvo fica fora de alcance ou sem caminho, o personagem troca de alvo ou se aproxima o máximo possível.',
     },
+    ataqueBasico: basicAttackReference(),
+    tabuleiroEPartida: boardAndMatchReference(content),
     habilidade: {
       campos: 'ability: { id, name, description, activation, cooldownSeconds, cast, effects (ao menos 1), visual }.',
       ativacao: {
@@ -178,7 +225,9 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
         castTimeMs: 'tempo em que o personagem fica ocupado (sem atacar nem andar) ao usar a habilidade.',
       },
       visual: {
-        campo: 'visual: { kind: burst | projectile | rain | aura | none, color: "#RRGGBB" }',
+        campo: 'visual: { kind: burst | projectile | rain | aura | none, color: "#RRGGBB", icon (opcional), projectileIcon (opcional) }',
+        icon: 'letra, número ou emoji (até 8 caracteres) mostrado ao usar a habilidade e nas fichas.',
+        projectileIcon: 'letra, número ou emoji (até 8 caracteres) desenhado no lugar do projétil.',
       },
       efeitos: Object.fromEntries(
         effectTypes.map((type) => [type, { ...EFFECT_DESCRIPTIONS[type], exemplo: newEffect(type) }]),
@@ -264,8 +313,10 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
     sprite: {
       formato: `PNG com fundo transparente, até ${MAXIMUM_SPRITE_BYTES / 1024 / 1024} MB e ${MAXIMUM_SPRITE_DIMENSION}×${MAXIMUM_SPRITE_DIMENSION} pixels.`,
       comoEnviar: 'Pelo painel (campo Sprite do personagem). O campo "sprite" não pode ser escrito à mão no JSON importado: o caminho é gerado pelo servidor (/sprites/<id>-<hash>.png).',
-      ajustes: 'scale (multiplica o tamanho padrão; a altura da imagem é ajustada à do personagem provisório), offsetX/offsetY (pixels), anchorX/anchorY (0–1: ponto da imagem sobre os pés; padrão 0.5 e 1).',
+      orientacao: 'A arte deve ser de perfil, olhando para a DIREITA; o jogo a espelha para a esquerda.',
+      ajustes: 'scale (multiplica o tamanho padrão; a altura da imagem é ajustada à do personagem provisório), offsetX/offsetY (pixels), anchorX/anchorY (0–1: ponto da imagem sobre os pés; padrão 0.5 e 1). A aba "Sprites e ícones" mostra a prévia ao vivo.',
     },
+    spritesAuxiliares: auxiliarySpriteReference(content),
     limites: [
       'O id é fixo depois de criado e não pode ser "torre" (reservado).',
       'Personagem ativo precisa estar na distribuição de sinergias; cada sinergia precisa de pelo menos 4 personagens.',
@@ -289,6 +340,7 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
         active: false,
         stats: { health: 6, damage: 5, attackSpeed: 4, range: 1, mobility: 4 },
         behavior: { movement: 'chase', targetPriority: 'nearest', preferredDistance: 1 },
+        attack: { shape: 'semicircle', maxTargets: 1 },
         ability: {
           id: 'meu_golpe',
           name: 'Meu golpe',
@@ -297,7 +349,7 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
           cooldownSeconds: 10,
           cast: { target: 'current_target', range: 1 },
           effects: [{ type: 'damage', targets: 'center_unit', multiplier: 2 }],
-          visual: { kind: 'burst', color: '#f97316' },
+          visual: { kind: 'burst', color: '#f97316', icon: '💥' },
         },
       },
       personagens: EXAMPLE_CHARACTER_IDS.map((id) => exampleCharacter(content, id)).filter((character) => character !== null),

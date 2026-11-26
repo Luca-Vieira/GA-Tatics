@@ -5,6 +5,7 @@ import { buildEndScreen, buildRoundResultScreen, buildShopModel, buildTopBarMode
 import { GameServer } from '../host/GameServer';
 import { ManualScheduler } from '../host/scheduler';
 import { PROTOCOL_VERSION } from '../protocol/serverMessages';
+import { DEFAULT_COMBAT_TIME_LIMIT_MS } from '@combat/engine/constants';
 import { LobbyClient } from './LobbyClient';
 import type { RemoteMatchSession } from './RemoteMatchSession';
 import { ServerConnection, type SocketLike } from './ServerConnection';
@@ -187,7 +188,7 @@ describe('partida em rede (cliente contra servidor real)', () => {
     expect(duel.combatConfig.units.length).toBeGreaterThan(0);
     expect([duel.topId, duel.bottomId]).toContain(session.humanId);
 
-    scheduler.advance(31_000);
+    scheduler.advance(DEFAULT_COMBAT_TIME_LIMIT_MS + 1000);
     await eventually(() => summaries.length === 1, 'resultado da rodada');
     const screen = buildRoundResultScreen(session.match, summaries[0]!, session.humanId, 5);
     expect(['Vitória!', 'Derrota', 'Empate']).toContain(screen.title);
@@ -208,7 +209,7 @@ describe('partida em rede (cliente contra servidor real)', () => {
       session.setReady(true);
       await eventually(() => session.match.getPlayer(session.humanId).ready || events.includes('ended'), 'pronto');
       scheduler.advance(0);
-      scheduler.advance(31_000);
+      scheduler.advance(DEFAULT_COMBAT_TIME_LIMIT_MS + 1000);
       await eventually(() => events.filter((event) => event === 'result').length > resultsBefore, 'resultado');
       scheduler.advance(5_000);
       await eventually(() => events.filter((event) => event === 'preparation').length > round + 1 || events.includes('ended'), 'próximo passo');
@@ -225,6 +226,135 @@ describe('partida em rede (cliente contra servidor real)', () => {
     session.start();
     server.stop();
     await eventually(() => events.includes('lost'), 'aviso de conexão perdida');
+  });
+});
+
+describe('assistir, sair e encerrar pela rede', () => {
+  let server: GameServer;
+  let scheduler: ManualScheduler;
+  let port: number;
+  const connections: ServerConnection[] = [];
+
+  interface TestPlayer {
+    readonly lobby: LobbyClient;
+    readonly sessions: RemoteMatchSession[];
+    readonly notices: string[];
+  }
+
+  async function connectPlayer(): Promise<TestPlayer> {
+    const connection = await ServerConnection.connect(`ws://127.0.0.1:${port}`);
+    connections.push(connection);
+    const lobby = new LobbyClient(connection);
+    const sessions: RemoteMatchSession[] = [];
+    const notices: string[] = [];
+    lobby.onMatchStarted((session) => sessions.push(session));
+    lobby.onRoomClosed((notice) => notices.push(notice));
+    return { lobby, sessions, notices };
+  }
+
+  async function hostMatch(maximumPlayers = 4): Promise<TestPlayer> {
+    const host = await connectPlayer();
+    host.lobby.createRoom('Ana', { maximumPlayers });
+    await eventually(() => host.lobby.isInRoom, 'sala criada');
+    host.lobby.startMatch();
+    await eventually(() => host.sessions.length === 1, 'início');
+    return host;
+  }
+
+  beforeEach(async () => {
+    scheduler = new ManualScheduler();
+    server = new GameServer({ port: 0, scheduler });
+    ({ port } = await server.start());
+  });
+
+  afterEach(async () => {
+    connections.splice(0).forEach((connection) => connection.close());
+    await server.stop();
+  });
+
+  it('uma sala de 8 chega à tela com os oito jogadores', async () => {
+    const host = await hostMatch(8);
+    expect(host.sessions[0]!.match.players).toHaveLength(8);
+    expect(host.sessions[0]!.spectator).toBeNull();
+  });
+
+  it('quem assiste vê a lista, entra, troca de jogador e não consegue agir', async () => {
+    const host = await hostMatch();
+    const viewer = await connectPlayer();
+    viewer.lobby.refreshRooms();
+    await eventually(() => viewer.lobby.rooms.length === 1, 'lista de salas');
+    expect(viewer.lobby.rooms[0]).toMatchObject({ status: 'playing', canBeWatched: true, spectatorCount: 0 });
+
+    viewer.lobby.spectate(viewer.lobby.rooms[0]!.roomCode);
+    await eventually(() => viewer.sessions.length === 1, 'sessão de espectador');
+    const session = viewer.sessions[0]!;
+    const { events, failures } = recordEvents(session);
+    await eventually(() => session.match.unitLimit > 0, 'rodada');
+    session.start();
+    expect(events).toEqual(['preparation']);
+    expect(session.humanId).toBe(host.sessions[0]!.humanId);
+    expect(session.spectator!.watchedPlayerId).toBe(session.humanId);
+    expect(session.match.getPlayer(session.humanId).shop).toEqual([]);
+    expect(viewer.lobby.isInRoom).toBe(false);
+
+    session.buy(0);
+    session.setReady(true);
+    expect(failures).toEqual(['spectator', 'spectator']);
+
+    const otherId = session.match.players.find((player) => player.id !== session.humanId)!.id;
+    session.spectator!.watch(otherId);
+    await eventually(() => session.humanId === otherId && events.length === 2, 'trocar de jogador');
+    expect(session.spectator!.watchedPlayerId).toBe(otherId);
+
+    scheduler.advance(40_000);
+    await eventually(() => events.includes('combat'), 'combate');
+  });
+
+  it('quem entra no meio do combate recebe o duelo ao começar a cena, já adiantado, com o tabuleiro do acompanhado', async () => {
+    // Com 4 jogadores, o duelo entre bots mantém a rodada em combate mesmo com a pessoa de tabuleiro vazio.
+    await hostMatch();
+    scheduler.advance(40_000);
+    scheduler.advance(1_000);
+    const viewer = await connectPlayer();
+    viewer.lobby.refreshRooms();
+    await eventually(() => viewer.lobby.rooms.length === 1, 'lista de salas');
+    viewer.lobby.spectate(viewer.lobby.rooms[0]!.roomCode);
+    await eventually(() => viewer.sessions.length === 1, 'sessão de espectador');
+    const session = viewer.sessions[0]!;
+    const { events, duels } = recordEvents(session);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    session.start();
+    expect(events).toEqual(['preparation', 'combat']);
+    expect(duels[0]!.elapsedMs).toBeGreaterThanOrEqual(1_000);
+    expect(session.match.getPlayer(session.humanId).units.every((unit) => unit.location.kind === 'board')).toBe(true);
+  });
+
+  it('sair da partida limpa o saguão de quem saiu e põe um bot na vaga para quem ficou', async () => {
+    const host = await connectPlayer();
+    host.lobby.createRoom('Ana');
+    await eventually(() => host.lobby.isInRoom, 'sala criada');
+    const guest = await connectPlayer();
+    guest.lobby.joinRoom(host.lobby.state.roomCode!, 'Beto');
+    await eventually(() => guest.lobby.isInRoom, 'entrada');
+    host.lobby.startMatch();
+    await eventually(() => host.sessions.length === 1 && guest.sessions.length === 1, 'início');
+
+    guest.sessions[0]!.leave();
+    await eventually(() => host.sessions[0]!.match.getPlayer('p2').isBot, 'bot na vaga');
+    expect(guest.lobby.isInRoom).toBe(false);
+    guest.lobby.quickMatch('Beto');
+    await eventually(() => guest.lobby.isInRoom, 'outra sala');
+  });
+
+  it('o administrador encerra a sala em jogo e todos recebem o motivo', async () => {
+    const host = await hostMatch();
+    const activities = server.createLiveActivities();
+    expect(activities.list()[0]).toMatchObject({ status: 'playing', round: 1 });
+    expect(activities.end(host.lobby.state.roomCode!.toLowerCase())).toBe(true);
+    await eventually(() => host.notices.length === 1, 'aviso');
+    expect(host.notices[0]).toContain('administrador');
+    expect(host.lobby.isInRoom).toBe(false);
+    expect(activities.list()).toEqual([]);
   });
 });
 

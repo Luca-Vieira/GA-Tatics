@@ -1,28 +1,26 @@
 import Phaser from 'phaser';
-import { isInsideBoard, mirrorCell, sideOfCell, cellsWithinRange, BOARD_CELLS } from '@shared/constants/board';
+import type { OwnedUnit, PlayerState, UnitLocation } from '@core/players/playerState';
+import { BOARD_CELLS, isInsideBoard, mirrorCell, sideOfCell } from '@shared/constants/board';
+import { attackAreaCells, defaultFacingOf, type AttackShape } from '@shared/utils/attackArea';
 import type { BoardProjection } from '@shared/utils/boardProjection';
 import type { Hex, Point } from '@shared/utils/hex';
-import type { OwnedUnit, PlayerState, UnitLocation } from '@core/players/playerState';
 import { SIDE_COLORS, drawCellOutline } from '../board/boardLayout';
+import { pointerPosition } from '../display/hiDpiCamera';
+import type { Rectangle } from '../layout/gameLayout';
 import type { SpriteAppearance } from '../sprites/spriteRegistry';
 import { UnitView } from '../sprites/UnitView';
 
 export interface UnitAppearance {
   readonly name: string;
   readonly isRanged: boolean;
-  /** Alcance de ataque em casas; 0 = não ataca (não mostra área de alcance). */
+  readonly isTower: boolean;
+  /** Alcance de ataque em casas; 0 = não ataca (não mostra área de ataque). */
   readonly range: number;
+  readonly attackShape: AttackShape;
   /** Cor da sinergia vigente, desenhada como anel no chão. */
   readonly accentColor: number;
   /** Sprite do personagem, se o servidor tiver um. */
   readonly sprite?: SpriteAppearance;
-}
-
-export interface Rectangle {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
 }
 
 export interface BenchSlotLayout {
@@ -47,6 +45,8 @@ interface PreparationOptions {
   readonly sellArea: Rectangle;
   readonly unitAppearance: (unit: OwnedUnit) => UnitAppearance;
   readonly callbacks: PreparationCallbacks;
+  /** Quem só assiste consulta as unidades, mas não as move; a reserva não aparece. */
+  readonly isReadOnly?: boolean;
 }
 
 interface ViewEntry {
@@ -62,18 +62,20 @@ interface DragState {
   moved: boolean;
 }
 
-const DRAG_THRESHOLD_PIXELS = 6;
-const RANGE_COLOR = 0xf87171;
-const BENCH_FEET_OFFSET = 22;
-const MELEE_BODY_SCALE = 1;
-const RANGED_BODY_SCALE = 0.85;
-const STAR_BODY_SCALE_BONUS = 0.1;
+/** Com o dedo, um toque costuma "tremer" um pouco; abaixo disso não é arrasto. */
+const DRAG_THRESHOLD_PIXELS = 10;
+const RANGE_COLOR = 0xfde047;
+const BENCH_FEET_OFFSET = 14;
+const MELEE_BODY_SCALE = 1.05;
+const RANGED_BODY_SCALE = 0.92;
+const STAR_BODY_SCALE_BONUS = 0.08;
+/** Na tela, a metade do jogador é a do lado B (à esquerda). */
 const OWN_CELLS = BOARD_CELLS.filter((cell) => sideOfCell(cell) === 'B');
 
 /**
- * Preparação: mostra as unidades do jogador (tabuleiro e reserva) e trata cliques e arrastos.
+ * Preparação: mostra as unidades do jogador (tabuleiro e reserva) e trata toques, cliques e arrastos.
  * Nada aqui decide regra: cada gesto vira uma chamada em `callbacks`, e a tela é refeita a partir do estado do jogador.
- * Na tela, a metade do jogador é a de baixo (lado B), então as casas guardadas no referencial do lado A são espelhadas.
+ * Na tela, a metade do jogador é a esquerda (lado B), então as casas guardadas no referencial do lado A são espelhadas.
  */
 export class PreparationView {
   private readonly entries = new Map<string, ViewEntry>();
@@ -84,6 +86,7 @@ export class PreparationView {
   private drag: DragState | null = null;
   private selectedUnitId: string | null = null;
   private enabled = true;
+  private isShown = true;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -97,16 +100,21 @@ export class PreparationView {
     scene.input.on('pointerdown', this.handlePointerDown, this);
     scene.input.on('pointermove', this.handlePointerMove, this);
     scene.input.on('pointerup', this.handlePointerUp, this);
+    scene.input.on('pointerupoutside', this.handlePointerUp, this);
   }
 
   get selectedId(): string | null {
     return this.selectedUnitId;
   }
 
+  get isDragging(): boolean {
+    return this.drag?.moved === true;
+  }
+
   /** Reconstrói a tela a partir do estado do jogador: cria, atualiza e remove as unidades. */
   sync(player: PlayerState): void {
-    this.units = player.units;
-    const presentIds = new Set(player.units.map((unit) => unit.id));
+    this.units = this.options.isReadOnly ? player.units.filter((unit) => unit.location.kind === 'board') : player.units;
+    const presentIds = new Set(this.units.map((unit) => unit.id));
     for (const [unitId, entry] of this.entries) {
       if (!presentIds.has(unitId)) {
         entry.view.destroy();
@@ -116,11 +124,22 @@ export class PreparationView {
         }
       }
     }
-    for (const unit of player.units) {
+    for (const unit of this.units) {
       this.syncUnit(unit);
     }
-    this.entries.forEach((entry, unitId) => entry.view.setSelected(unitId === this.selectedUnitId));
+    this.entries.forEach((entry, unitId) => {
+      entry.view.setSelected(unitId === this.selectedUnitId);
+      entry.view.setVisible(this.isShown);
+    });
     this.refreshRangeOverlay();
+  }
+
+  /** Recria os desenhos (ex.: quando as imagens dos sprites terminam de chegar). */
+  rebuild(player: PlayerState): void {
+    this.cancelDrag();
+    this.entries.forEach((entry) => entry.view.destroy());
+    this.entries.clear();
+    this.sync(player);
   }
 
   update(simulationTimeMs: number): void {
@@ -137,10 +156,11 @@ export class PreparationView {
 
   /** Esconde as unidades de preparação enquanto o combate as substitui. */
   setVisible(isVisible: boolean): void {
+    this.isShown = isVisible;
     this.entries.forEach((entry) => entry.view.setVisible(isVisible));
     this.highlight.setVisible(isVisible);
     this.rangeGraphics.setVisible(isVisible);
-    this.benchGraphics.setVisible(isVisible);
+    this.benchGraphics.setVisible(isVisible && !this.options.isReadOnly);
   }
 
   select(unitId: string | null): void {
@@ -150,7 +170,7 @@ export class PreparationView {
     this.options.callbacks.onSelect(unitId);
   }
 
-  /** Posição na tela dos pés da unidade, útil para efeitos (fusão, venda). */
+  /** Posição na tela dos pés da unidade, útil para efeitos e para escolher o lado do painel. */
   groundPositionOf(unitId: string): Point | null {
     return this.entries.get(unitId)?.view.groundPosition ?? null;
   }
@@ -159,6 +179,7 @@ export class PreparationView {
     this.scene.input.off('pointerdown', this.handlePointerDown, this);
     this.scene.input.off('pointermove', this.handlePointerMove, this);
     this.scene.input.off('pointerup', this.handlePointerUp, this);
+    this.scene.input.off('pointerupoutside', this.handlePointerUp, this);
     this.entries.forEach((entry) => entry.view.destroy());
     this.entries.clear();
     this.highlight.destroy();
@@ -193,6 +214,9 @@ export class PreparationView {
       starLevel: unit.starLevel,
       accentColor: appearance.accentColor,
       sprite: appearance.sprite,
+      isTower: appearance.isTower,
+      // A equipe do jogador fica à esquerda, olhando para o adversário.
+      facingRight: true,
       showHealthBar: false,
       bodyScale: baseScale * (1 + STAR_BODY_SCALE_BONUS * (unit.starLevel - 1)),
       perspectiveScaleAt: (groundY) => this.options.projection.perspectiveScaleAt(groundY),
@@ -213,6 +237,7 @@ export class PreparationView {
 
   private drawBenchSlots(): void {
     this.benchGraphics.clear();
+    this.benchGraphics.setVisible(!this.options.isReadOnly);
     for (const slot of this.options.benchSlots) {
       this.benchGraphics.fillStyle(0x0f1a30, 0.95);
       this.benchGraphics.fillRoundedRect(slot.center.x - slot.width / 2, slot.center.y - slot.height / 2, slot.width, slot.height, 8);
@@ -227,7 +252,7 @@ export class PreparationView {
     if (!this.enabled || currentlyOver.length > 0) {
       return;
     }
-    const point = { x: pointer.x, y: pointer.y };
+    const point = pointerPosition(this.scene, pointer);
     const unit = this.unitAt(point);
     if (!unit) {
       this.handleClickOnEmptySpace(point);
@@ -247,23 +272,25 @@ export class PreparationView {
 
   private handlePointerMove(pointer: Phaser.Input.Pointer): void {
     const drag = this.drag;
-    if (!drag || !this.enabled) {
+    if (!drag || !this.enabled || this.options.isReadOnly) {
       return;
     }
     const view = this.entries.get(drag.unitId)?.view;
     if (!view) {
       return;
     }
-    const travelled = Math.hypot(pointer.x - drag.startPointer.x, pointer.y - drag.startPointer.y);
+    const point = pointerPosition(this.scene, pointer);
+    const travelled = Math.hypot(point.x - drag.startPointer.x, point.y - drag.startPointer.y);
     if (!drag.moved && travelled < DRAG_THRESHOLD_PIXELS) {
       return;
     }
-    if (!drag.moved) {
+    const hasJustStarted = !drag.moved;
+    drag.moved = true;
+    if (hasJustStarted) {
       this.options.callbacks.onDragChange(true);
     }
-    drag.moved = true;
     view.setDragging(true);
-    view.placeAt({ x: pointer.x + drag.grabOffset.x, y: pointer.y + drag.grabOffset.y });
+    view.placeAt({ x: point.x + drag.grabOffset.x, y: point.y + drag.grabOffset.y });
     this.drawDropHighlight(view.groundPosition);
     this.refreshRangeOverlay();
   }
@@ -286,7 +313,7 @@ export class PreparationView {
       return;
     }
     if (view) {
-      this.dropUnit(drag.unitId, { x: pointer.x, y: pointer.y }, view.groundPosition);
+      this.dropUnit(drag.unitId, pointerPosition(this.scene, pointer), view.groundPosition);
     }
   }
 
@@ -297,6 +324,7 @@ export class PreparationView {
     this.refreshRangeOverlay();
     if (drag) {
       this.entries.get(drag.unitId)?.view.setDragging(false);
+      this.snapBack(drag.unitId);
       if (drag.moved) {
         this.options.callbacks.onDragChange(false);
       }
@@ -317,7 +345,7 @@ export class PreparationView {
     const cell = this.ownCellAt(feet);
     if (cell) {
       this.options.callbacks.onMove(unitId, { kind: 'board', cell: mirrorCell(cell) });
-      // Ao posicionar, a unidade fica selecionada e o alcance dela continua à mostra.
+      // Ao posicionar, a unidade fica selecionada e a área de ataque dela continua à mostra.
       this.select(unitId);
       return;
     }
@@ -331,10 +359,14 @@ export class PreparationView {
     }
   }
 
-  /** Com uma unidade selecionada, clicar numa casa ou espaço da reserva a leva para lá. */
+  /** Com uma unidade selecionada, tocar numa casa ou espaço da reserva a leva para lá. */
   private handleClickOnEmptySpace(point: Point): void {
     const selectedId = this.selectedUnitId;
     if (!selectedId) {
+      return;
+    }
+    if (this.options.isReadOnly) {
+      this.select(null);
       return;
     }
     const benchSlot = this.benchSlotAt(point);
@@ -360,55 +392,59 @@ export class PreparationView {
   }
 
   private benchSlotAt(point: Point): number | null {
+    if (this.options.isReadOnly) {
+      return null;
+    }
     const index = this.options.benchSlots.findIndex((slot) => Math.abs(point.x - slot.center.x) <= slot.width / 2 && Math.abs(point.y - slot.center.y) <= slot.height / 2);
     return index >= 0 ? index : null;
   }
 
-  /** Casa da metade do jogador (a de baixo) sob o ponto, ou `null`. */
+  /** Casa da metade do jogador (a da esquerda) sob o ponto, ou `null`. */
   private ownCellAt(point: Point): Hex | null {
     const cell = this.options.projection.groundToCell(point);
     return isInsideBoard(cell) && sideOfCell(cell) === 'B' ? cell : null;
   }
 
   /**
-   * Área de alcance de ataque: de quem está sendo arrastado (a partir da casa em que ele cairia) ou, sem arrasto,
-   * da unidade selecionada que está no tabuleiro. Reserva e unidades que não atacam não mostram área.
+   * Área de ataque no formato do personagem: de quem está sendo arrastado (a partir da casa em que ele cairia) ou, sem
+   * arrasto, da unidade selecionada no tabuleiro. Reserva e unidades que não atacam não mostram área.
    */
   private refreshRangeOverlay(): void {
     this.rangeGraphics.clear();
     const target = this.rangeTarget();
-    if (!target || target.range < 1) {
+    if (!target || target.appearance.range < 1) {
       return;
     }
-    for (const cell of cellsWithinRange(target.center, target.range)) {
-      drawCellOutline(this.rangeGraphics, this.options.projection, cell, RANGE_COLOR, 0.3, 2);
+    const cells = attackAreaCells(target.center, target.appearance.attackShape, target.appearance.range, defaultFacingOf('B'));
+    for (const cell of cells) {
+      drawCellOutline(this.rangeGraphics, this.options.projection, cell, RANGE_COLOR, 0.22, 2, 0.85);
     }
-    drawCellOutline(this.rangeGraphics, this.options.projection, target.center, RANGE_COLOR, 0.35, 2);
+    drawCellOutline(this.rangeGraphics, this.options.projection, target.center, 0xffffff, 0.22, 2);
   }
 
-  /** Casa central (já na orientação da tela) e alcance da unidade cujo alcance deve aparecer. */
-  private rangeTarget(): { readonly center: Hex; readonly range: number } | null {
+  /** Casa central (já na orientação da tela) e aparência da unidade cuja área deve aparecer. */
+  private rangeTarget(): { readonly center: Hex; readonly appearance: UnitAppearance } | null {
     const dragged = this.drag?.moved ? this.units.find((unit) => unit.id === this.drag?.unitId) : undefined;
     if (dragged) {
       const feet = this.entries.get(dragged.id)?.view.groundPosition;
       const cell = feet ? this.ownCellAt(feet) : null;
-      return cell ? { center: cell, range: this.options.unitAppearance(dragged).range } : null;
+      return cell ? { center: cell, appearance: this.options.unitAppearance(dragged) } : null;
     }
     const selected = this.units.find((unit) => unit.id === this.selectedUnitId);
     if (!selected || selected.location.kind !== 'board') {
       return null;
     }
-    return { center: mirrorCell(selected.location.cell), range: this.options.unitAppearance(selected).range };
+    return { center: mirrorCell(selected.location.cell), appearance: this.options.unitAppearance(selected) };
   }
 
   private drawDropHighlight(feet: Point): void {
     this.highlight.clear();
     for (const cell of OWN_CELLS) {
-      drawCellOutline(this.highlight, this.options.projection, cell, 0xffffff, 0.08, 1);
+      drawCellOutline(this.highlight, this.options.projection, cell, 0xffffff, 0.06, 1, 0.5);
     }
     const target = this.ownCellAt(feet);
     if (target) {
-      drawCellOutline(this.highlight, this.options.projection, target, 0xfde047, 0.25, 3);
+      drawCellOutline(this.highlight, this.options.projection, target, 0xffffff, 0.3, 4);
     }
   }
 }

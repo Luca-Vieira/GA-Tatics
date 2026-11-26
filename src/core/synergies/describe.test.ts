@@ -15,12 +15,12 @@ describe('descrição dos efeitos de sinergia', () => {
   it('escreve cada efeito do nível 1 em português', () => {
     const texts = DEFAULT_SYNERGIES.flatMap((synergy) => synergy.tiers[0]!.effects.map(describeSynergyEffect));
     expect(texts).toEqual([
-      '+5% de resistência',
+      '+4% de resistência',
       'regenera 1% da vida a cada 3 s',
       'habilidades 15% mais rápidas',
       'efeitos positivos 15% mais fortes',
-      '+6% de dano',
-      '+4% de velocidade de ataque',
+      '+5% de dano',
+      '+3% de velocidade de ataque',
     ]);
   });
 });

@@ -5,9 +5,9 @@ import { applyRoomModifiers, describeRoomModifiers } from '@core/game/roomModifi
 import { boardUnitsOf, type OwnedUnit, type PlayerState } from '@core/players/playerState';
 import { summarizeSynergies } from '@core/synergies/synergies';
 import { buildTowerCharacter } from '@core/tower/tower';
-import type { OwnPlayerView, PublicPlayerView, ServerMessage } from '../protocol/serverMessages';
+import { mirrorCell } from '@shared/constants/board';
+import type { DuelView, MatchSetupView, OwnPlayerView, PublicPlayerView, ServerMessage } from '../protocol/serverMessages';
 
-type MatchStartedMessage = Extract<ServerMessage, { type: 'match_started' }>;
 type RoundStartedMessage = Extract<ServerMessage, { type: 'round_started' }>;
 type MatchEndedMessage = Extract<ServerMessage, { type: 'match_ended' }>;
 
@@ -15,6 +15,7 @@ type MatchEndedMessage = Extract<ServerMessage, { type: 'match_ended' }>;
  * Espelho da partida no cliente, montado só com o que o servidor envia. Serve de `MatchView` para a interface:
  * da própria pessoa há loja, moedas e unidades; dos demais jogadores só nome, vidas e eliminação
  * (as unidades dos adversários ficam escondidas, então a lista delas fica vazia).
+ * Quem assiste não recebe loja, moedas nem reserva de ninguém: só o tabuleiro do acompanhado durante o combate.
  * Regras e dados vêm dos padrões do jogo: servidor e cliente precisam usar o mesmo elenco e a mesma configuração.
  */
 export class RemoteMatchState implements MatchView {
@@ -35,8 +36,8 @@ export class RemoteMatchState implements MatchView {
   private finalStandings: MatchEndedMessage['standings'] = [];
 
   constructor(
-    private readonly humanId: string,
-    started: MatchStartedMessage,
+    private humanId: string,
+    started: MatchSetupView,
     content: GameContent,
   ) {
     // A configuração já vem com as vidas, os tempos e a renda da sala, igual à que o servidor usa.
@@ -117,6 +118,7 @@ export class RemoteMatchState implements MatchView {
     for (const view of players) {
       const player = this.playerList.find((candidate) => candidate.id === view.playerId);
       if (player) {
+        player.isBot = view.isBot;
         player.lives = view.lives;
         player.eliminatedInRound = view.eliminatedInRound;
       }
@@ -125,5 +127,31 @@ export class RemoteMatchState implements MatchView {
 
   applyMatchEnded(message: MatchEndedMessage): void {
     this.finalStandings = message.standings;
+  }
+
+  // --- Quem assiste -------------------------------------------------------------------------------
+
+  watch(playerId: string): void {
+    this.humanId = playerId;
+    this.clearBoards();
+  }
+
+  clearBoards(): void {
+    this.playerList.forEach((player) => {
+      player.units = [];
+    });
+  }
+
+  /** Monta o tabuleiro do jogador acompanhado com o que o duelo mostra (nas casas do referencial dele). */
+  showWatchedBoard(duel: DuelView): void {
+    const side = duel.topId === this.humanId ? 'A' : 'B';
+    const specs = duel.combatConfig.units.filter((spec) => spec.side === side && spec.characterId !== undefined);
+    this.getPlayer(this.humanId).units = specs.map((spec, index): OwnedUnit => ({
+      id: spec.id.slice(side.length + 1),
+      characterId: spec.characterId!,
+      starLevel: spec.starLevel ?? 1,
+      acquiredOrder: index,
+      location: { kind: 'board', cell: side === 'A' ? spec.cell : mirrorCell(spec.cell) },
+    }));
   }
 }

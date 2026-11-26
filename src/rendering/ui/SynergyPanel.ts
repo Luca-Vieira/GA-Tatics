@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { addPanelBackground, addText, colorToCss, TEXT_COLORS, UI_DEPTH } from './theme';
+import { bySize, isCompactDisplay } from '../layout/displayProfile';
+import { SYNERGY_PANEL } from '../layout/gameLayout';
+import { addPanelBackground, addText, colorToCss, COLORS, setTextColor, TEXT_COLORS, UI_DEPTH } from './theme';
 
 export interface SynergyRowModel {
   readonly name: string;
@@ -21,14 +23,22 @@ export interface SynergyViewModel {
   readonly rotationLabel: string;
 }
 
-const MAXIMUM_ROW_HEIGHT = 112;
-/** Abaixo desta altura as linhas usam letras menores e uma disposição mais compacta (quando há 4 ou 5 sinergias). */
-const COMPACT_ROW_HEIGHT = 100;
-const HEADER_HEIGHT = 30;
-const FOOTER_HEIGHT = 34;
-const PADDING = 12;
-/** Altura que o painel pode ocupar (a mesma do painel de detalhes, do outro lado do tabuleiro). */
-const PANEL_MAXIMUM_HEIGHT = 462;
+const PADDING = 8;
+const HEADER_HEIGHT = 34;
+const FOOTER_HEIGHT = 44;
+const MAXIMUM_ROW_HEIGHT = 120;
+/** Abaixo desta altura não cabe o texto dos efeitos na linha (fica só nos detalhes). */
+const MINIMUM_ROW_HEIGHT_WITH_EFFECTS = 96;
+const EFFECT_LINE_HEIGHT = 14;
+const REGULAR_POPUP_WIDTH = 300;
+const COMPACT_POPUP_WIDTH = 480;
+const POPUP_PADDING = 12;
+const POPUP_DEPTH = UI_DEPTH + 30;
+
+interface SynergyRowCallbacks {
+  readonly onTap: () => void;
+  readonly onHover: (isHovering: boolean) => void;
+}
 
 class SynergyRow {
   private readonly items: Phaser.GameObjects.GameObject[] = [];
@@ -37,78 +47,145 @@ class SynergyRow {
   private readonly countText: Phaser.GameObjects.Text;
   private readonly pips: Phaser.GameObjects.Graphics;
   private readonly effectsText: Phaser.GameObjects.Text;
-  private readonly membersText: Phaser.GameObjects.Text;
-  private readonly pipOffsetY: number;
+  private readonly showsEffects: boolean;
+  private model: SynergyRowModel | null = null;
 
   constructor(
     scene: Phaser.Scene,
-    private readonly x: number,
-    private readonly y: number,
-    private readonly width: number,
-    rowHeight: number,
+    readonly top: number,
+    height: number,
+    callbacks: SynergyRowCallbacks,
   ) {
-    const isCompact = rowHeight < COMPACT_ROW_HEIGHT;
-    this.pipOffsetY = isCompact ? 20 : 26;
-    this.stripe = scene.add.rectangle(x + PADDING, y + 4, 5, rowHeight - 14, 0xffffff).setOrigin(0, 0).setDepth(UI_DEPTH);
-    this.nameText = addText(scene, x + PADDING + 14, y + 2, '', { fontSize: isCompact ? '14px' : '16px', fontStyle: 'bold' }).setDepth(UI_DEPTH);
-    this.countText = addText(scene, x + width - PADDING, y + 3, '', { fontSize: isCompact ? '13px' : '15px', fontStyle: 'bold' }).setOrigin(1, 0).setDepth(UI_DEPTH);
+    const { x, width } = SYNERGY_PANEL;
+    this.showsEffects = !isCompactDisplay() && height >= MINIMUM_ROW_HEIGHT_WITH_EFFECTS;
+    const hitArea = scene.add.rectangle(x + 2, top, width - 4, height - 4, 0xffffff, 0.04).setOrigin(0, 0).setDepth(UI_DEPTH - 1).setInteractive({ useHandCursor: true });
+    this.stripe = scene.add.rectangle(x + 5, top + 3, 4, height - 12, 0xffffff).setOrigin(0, 0).setDepth(UI_DEPTH);
+    this.nameText = addText(scene, x + 16, top + 3, '', { fontSize: bySize('14px', '21px'), fontStyle: 'bold' }).setDepth(UI_DEPTH);
+    this.countText = addText(scene, x + 16, top + bySize(22, 32), '', { fontSize: bySize('16px', '30px'), fontStyle: 'bold' }).setDepth(UI_DEPTH);
     this.pips = scene.add.graphics().setDepth(UI_DEPTH);
-    this.effectsText = addText(scene, x + PADDING + 14, y + (isCompact ? 31 : 40), '', {
-      fontSize: isCompact ? '10px' : '11px',
-      wordWrap: { width: width - PADDING * 2 - 14 },
-      lineSpacing: 1,
-    }).setDepth(UI_DEPTH);
-    this.membersText = addText(scene, x + PADDING + 14, y + rowHeight - (isCompact ? 24 : 32), '', {
-      fontSize: isCompact ? '9px' : '10px',
-      color: TEXT_COLORS.muted,
-      wordWrap: { width: width - PADDING * 2 - 14 },
-    }).setDepth(UI_DEPTH);
-    this.items.push(this.stripe, this.nameText, this.countText, this.pips, this.effectsText, this.membersText);
+    const maximumEffectLines = Math.max(1, Math.floor((height - 50) / EFFECT_LINE_HEIGHT));
+    this.effectsText = addText(scene, x + 16, top + 46, '', { fontSize: '11px', wordWrap: { width: width - 24 }, lineSpacing: 1, maxLines: maximumEffectLines }).setDepth(UI_DEPTH);
+    this.items.push(hitArea, this.stripe, this.nameText, this.countText, this.pips, this.effectsText);
+
+    hitArea.on('pointerdown', callbacks.onTap);
+    hitArea.on('pointerover', (pointer: Phaser.Input.Pointer) => !pointer.wasTouch && callbacks.onHover(true));
+    hitArea.on('pointerout', (pointer: Phaser.Input.Pointer) => !pointer.wasTouch && callbacks.onHover(false));
+  }
+
+  get currentModel(): SynergyRowModel | null {
+    return this.model;
   }
 
   render(model: SynergyRowModel): void {
+    this.model = model;
     const isActive = model.activeTierIndex >= 0;
     this.stripe.setFillStyle(model.color).setAlpha(isActive ? 1 : 0.45);
-    this.nameText.setText(model.name).setColor(colorToCss(model.color));
+    this.nameText.setText(model.name);
+    setTextColor(this.nameText, colorToCss(model.color));
     const nextThreshold = model.thresholds.find((threshold) => threshold > model.count);
-    this.countText.setText(nextThreshold === undefined ? `${model.count}` : `${model.count}/${nextThreshold}`).setColor(isActive ? TEXT_COLORS.good : TEXT_COLORS.main);
-
-    this.pips.clear();
-    model.thresholds.forEach((_threshold, tier) => {
-      const pipX = this.x + PADDING + 14 + tier * 58;
-      const pipY = this.y + this.pipOffsetY;
-      const lit = tier <= model.activeTierIndex;
-      this.pips.fillStyle(lit ? model.color : 0x0b1220, 1);
-      this.pips.fillRoundedRect(pipX, pipY, 52, 8, 3);
-      this.pips.lineStyle(1, model.color, 0.7);
-      this.pips.strokeRoundedRect(pipX, pipY, 52, 8, 3);
-    });
-
-    const prefix = model.isPreview ? `Com ${model.thresholds[0] ?? 0}: ` : '';
-    this.effectsText.setText(model.effectLines.map((line, index) => (index === 0 ? `${prefix}${line}` : line)).join('\n')).setAlpha(isActive ? 1 : 0.6);
-    this.membersText.setText(model.memberNames.join(', '));
+    this.countText.setText(nextThreshold === undefined ? `${model.count}` : `${model.count}/${nextThreshold}`);
+    setTextColor(this.countText, isActive ? TEXT_COLORS.good : TEXT_COLORS.main);
+    this.drawPips(model);
+    this.effectsText.setVisible(this.showsEffects);
+    this.effectsText.setText(this.showsEffects ? effectsWithPrefix(model) : '').setAlpha(isActive ? 1 : 0.6);
   }
 
   destroy(): void {
     this.items.forEach((item) => item.destroy());
   }
+
+  private drawPips(model: SynergyRowModel): void {
+    const left = SYNERGY_PANEL.x + bySize(58, 76);
+    const pipWidth = Math.floor((SYNERGY_PANEL.width - bySize(66, 84)) / Math.max(1, model.thresholds.length)) - 4;
+    this.pips.clear();
+    model.thresholds.forEach((_threshold, tier) => {
+      const pipX = left + tier * (pipWidth + 4);
+      const isLit = tier <= model.activeTierIndex;
+      this.pips.fillStyle(isLit ? model.color : 0x0b1220, 1);
+      const pipY = this.top + bySize(28, 42);
+      this.pips.fillRoundedRect(pipX, pipY, pipWidth, 9, 3);
+      this.pips.lineStyle(1, model.color, 0.7);
+      this.pips.strokeRoundedRect(pipX, pipY, pipWidth, 9, 3);
+    });
+  }
 }
 
-/** Painel de sinergias: contagem por sinergia, nível ativo, bônus e contagem regressiva da rotação (GDD 4.6). */
+function effectsWithPrefix(model: SynergyRowModel): string {
+  const prefix = model.isPreview ? `Com ${model.thresholds[0] ?? 0}: ` : '';
+  return model.effectLines.map((line, index) => (index === 0 ? `${prefix}${line}` : line)).join('\n');
+}
+
+/** Caixa ao lado da coluna com os efeitos e os membros da sinergia consultada. */
+class SynergyPopup {
+  private readonly width = bySize(REGULAR_POPUP_WIDTH, COMPACT_POPUP_WIDTH);
+  private readonly background: Phaser.GameObjects.Rectangle;
+  private readonly titleText: Phaser.GameObjects.Text;
+  private readonly bodyText: Phaser.GameObjects.Text;
+
+  constructor(scene: Phaser.Scene) {
+    const x = SYNERGY_PANEL.x + SYNERGY_PANEL.width + 8;
+    this.background = scene.add.rectangle(x, 0, this.width, 80, COLORS.panel, 0.98).setOrigin(0, 0).setStrokeStyle(2, COLORS.panelBorder).setDepth(POPUP_DEPTH);
+    this.titleText = addText(scene, x + POPUP_PADDING, 0, '', { fontSize: bySize('17px', '27px'), fontStyle: 'bold' }).setDepth(POPUP_DEPTH + 1);
+    this.bodyText = addText(scene, x + POPUP_PADDING, 0, '', { fontSize: bySize('14px', '22px'), wordWrap: { width: this.width - POPUP_PADDING * 2 }, lineSpacing: 3 }).setDepth(POPUP_DEPTH + 1);
+    this.hide();
+  }
+
+  show(model: SynergyRowModel, top: number): void {
+    const preview = model.isPreview ? `Ainda inativa. Com ${model.thresholds[0] ?? 0} no tabuleiro:` : 'Ativa:';
+    const levels = isCompactDisplay() ? [] : ['', `Níveis: ${model.thresholds.join(' e ')} unidades`];
+    const body = [preview, ...model.effectLines.map((line) => `• ${line}`), ...levels, `Membros: ${model.memberNames.join(', ')}`];
+    this.titleText.setText(model.name);
+    setTextColor(this.titleText, colorToCss(model.color));
+    this.bodyText.setText(body.join('\n'));
+    const bodyTop = bySize(38, 50);
+    const height = this.bodyText.height + bodyTop + 10;
+    const clampedTop = Math.min(top, SYNERGY_PANEL.y + SYNERGY_PANEL.height - height);
+    this.background.setY(clampedTop).setSize(this.width, height);
+    this.titleText.setY(clampedTop + 10);
+    this.bodyText.setY(clampedTop + bodyTop);
+    [this.background, this.titleText, this.bodyText].forEach((item) => item.setVisible(true));
+  }
+
+  hide(): void {
+    [this.background, this.titleText, this.bodyText].forEach((item) => item.setVisible(false));
+  }
+
+  destroy(): void {
+    [this.background, this.titleText, this.bodyText].forEach((item) => item.destroy());
+  }
+}
+
+/** Coluna de sinergias: contagem, nível ativo, bônus e contagem regressiva da rotação (GDD 4.6). */
 export class SynergyPanel {
   private readonly items: Phaser.GameObjects.GameObject[] = [];
   private readonly rows: SynergyRow[];
   private readonly rotationText: Phaser.GameObjects.Text;
+  private readonly popup: SynergyPopup;
+  /** Linha cujos detalhes estão fixados por um toque. */
+  private pinnedRow: number | null = null;
+  private shownRow: number | null = null;
 
-  /** `rowCount` é a quantidade de sinergias do jogo; a altura das linhas se ajusta para o painel caber na tela. */
-  constructor(scene: Phaser.Scene, x: number, y: number, width: number, rowCount: number) {
-    const rowHeight = Math.min(MAXIMUM_ROW_HEIGHT, Math.floor((PANEL_MAXIMUM_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT) / Math.max(1, rowCount)));
-    const rowsHeight = HEADER_HEIGHT + rowCount * rowHeight;
-    this.items.push(addPanelBackground(scene, x, y, width, rowsHeight + FOOTER_HEIGHT));
-    this.items.push(addText(scene, x + PADDING, y + 8, 'Sinergias', { fontSize: '15px', fontStyle: 'bold' }).setDepth(UI_DEPTH));
-    this.rows = Array.from({ length: rowCount }, (_, index) => new SynergyRow(scene, x, y + HEADER_HEIGHT + index * rowHeight, width, rowHeight));
-    this.rotationText = addText(scene, x + PADDING, y + rowsHeight + 6, '', { fontSize: '11px', color: TEXT_COLORS.muted }).setDepth(UI_DEPTH);
+  /** `rowCount` é a quantidade de sinergias do jogo; a altura das linhas se ajusta para a coluna caber na tela. */
+  constructor(scene: Phaser.Scene, rowCount: number) {
+    const { x, y, width, height } = SYNERGY_PANEL;
+    const rowHeight = Math.min(MAXIMUM_ROW_HEIGHT, Math.floor((height - HEADER_HEIGHT - FOOTER_HEIGHT) / Math.max(1, rowCount)));
+    this.items.push(addPanelBackground(scene, x, y, width, height));
+    this.items.push(addText(scene, x + PADDING, y + 5, 'Sinergias', { fontSize: bySize('14px', '21px'), fontStyle: 'bold' }).setDepth(UI_DEPTH));
+    if (!isCompactDisplay()) {
+      this.items.push(addText(scene, x + PADDING, y + 21, 'toque para detalhes', { fontSize: '11px', color: TEXT_COLORS.muted }).setDepth(UI_DEPTH));
+    }
+    this.rows = Array.from(
+      { length: rowCount },
+      (_, index) =>
+        new SynergyRow(scene, y + HEADER_HEIGHT + index * rowHeight, rowHeight, {
+          onTap: () => this.togglePinned(index),
+          onHover: (isHovering) => this.showRow(isHovering ? index : this.pinnedRow),
+        }),
+    );
+    this.rotationText = addText(scene, x + PADDING, y + height - FOOTER_HEIGHT + 6, '', { fontSize: '11px', color: TEXT_COLORS.muted, wordWrap: { width: width - PADDING * 2 } }).setDepth(UI_DEPTH);
+    this.rotationText.setVisible(!isCompactDisplay());
     this.items.push(this.rotationText);
+    this.popup = new SynergyPopup(scene);
   }
 
   render(model: SynergyViewModel): void {
@@ -118,11 +195,36 @@ export class SynergyPanel {
         row.render(rowModel);
       }
     });
-    this.rotationText.setText(model.rotationLabel);
+    this.rotationText.setText(model.rotationLabel.replace(' · ', '\n'));
+    if (this.shownRow !== null) {
+      this.showRow(this.shownRow);
+    }
+  }
+
+  closeDetails(): void {
+    this.pinnedRow = null;
+    this.showRow(null);
   }
 
   destroy(): void {
     this.items.forEach((item) => item.destroy());
     this.rows.forEach((row) => row.destroy());
+    this.popup.destroy();
+  }
+
+  private togglePinned(index: number): void {
+    this.pinnedRow = this.pinnedRow === index ? null : index;
+    this.showRow(this.pinnedRow);
+  }
+
+  private showRow(index: number | null): void {
+    this.shownRow = index;
+    const row = index === null ? undefined : this.rows[index];
+    const model = row?.currentModel;
+    if (!row || !model) {
+      this.popup.hide();
+      return;
+    }
+    this.popup.show(model, row.top);
   }
 }

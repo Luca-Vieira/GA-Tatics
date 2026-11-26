@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { isGameAction, MAXIMUM_MESSAGE_BYTES, parseClientMessage, type ParsedClientMessage } from '../protocol/clientMessages';
 import { PROTOCOL_VERSION, type ServerErrorCode, type ServerMessage } from '../protocol/serverMessages';
-import { RoomRegistry } from '../rooms/RoomRegistry';
+import { ENDED_BY_ADMIN_NOTICE, RoomRegistry } from '../rooms/RoomRegistry';
+import type { LiveActivities } from './liveActivities';
 import type { RoomResult } from '../rooms/Room';
 import { AdminApi } from './adminApi';
 import { AdminAuth, validateAdminCredentials, type AdminCredentials } from './adminAuth';
@@ -80,7 +81,7 @@ export class GameServer {
     this.options = {
       host: options.host ?? LOOPBACK_HOST,
       port: options.port ?? DEFAULT_PORT,
-      maximumConnections: options.maximumConnections ?? 64,
+      maximumConnections: options.maximumConnections ?? 96,
       maximumRooms: options.maximumRooms ?? 16,
       messageBurst: options.messageBurst ?? 30,
       messagesPerSecond: options.messagesPerSecond ?? 10,
@@ -107,6 +108,7 @@ export class GameServer {
       log: this.log,
       allowedOrigins: this.allowedOrigins,
       trustProxy: options.trustProxy ?? false,
+      liveActivities: this.createLiveActivities(),
     });
     this.registry = new RoomRegistry({
       maximumRooms: this.options.maximumRooms,
@@ -117,6 +119,14 @@ export class GameServer {
         getContent: () => this.contentStore.snapshot,
       },
     });
+  }
+
+  /** O que o painel de administração pode ver e encerrar. */
+  createLiveActivities(): LiveActivities {
+    return {
+      list: () => this.registry.listActivities(),
+      end: (roomCode) => this.registry.endRoom(roomCode.toUpperCase(), ENDED_BY_ADMIN_NOTICE),
+    };
   }
 
   get connectionCount(): number {
@@ -258,7 +268,15 @@ export class GameServer {
   private handle(connectionId: string, message: ParsedClientMessage): void {
     switch (message.type) {
       case 'create_room':
-        this.report(connectionId, this.registry.createRoom(connectionId, message.playerName, { visibility: message.visibility, password: message.password, modifiers: message.modifiers }));
+        this.report(
+          connectionId,
+          this.registry.createRoom(connectionId, message.playerName, {
+            visibility: message.visibility,
+            password: message.password,
+            modifiers: message.modifiers,
+            maximumPlayers: message.maximumPlayers,
+          }),
+        );
         return;
       case 'join_room':
         this.report(connectionId, this.registry.joinRoom(connectionId, message.roomCode, message.playerName, message.password));
@@ -268,6 +286,12 @@ export class GameServer {
         return;
       case 'quick_match':
         this.report(connectionId, this.registry.quickMatch(connectionId, message.playerName));
+        return;
+      case 'spectate_room':
+        this.report(connectionId, this.registry.spectate(connectionId, message.roomCode, message.password));
+        return;
+      case 'watch_player':
+        this.report(connectionId, this.registry.roomOf(connectionId)?.watchPlayer(connectionId, message.playerId) ?? notInRoom());
         return;
       case 'leave_room':
         this.leaveRoom(connectionId);

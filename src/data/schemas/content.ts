@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { characterSchema } from './character';
+import { characterSchema, spriteDefinitionSchema } from './character';
 import { gameConfigSchema } from './gameConfig';
 import { synergyRotationConfigSchema, synergySchema, validateSynergyMapping } from './synergy';
 
@@ -8,6 +8,7 @@ export const MINIMUM_SYNERGY_COUNT = 3;
 export const MAXIMUM_SYNERGY_COUNT = 5;
 /** Sprites vêm do servidor: `/sprites/<id>-<hash de 12 caracteres>.png` (o servidor guarda e entrega o arquivo). */
 export const SPRITE_PATH_PATTERN = /^\/sprites\/[a-z0-9_]{1,40}-[0-9a-f]{12}\.png$/;
+export const AUXILIARY_SPRITE_KEY_PATTERN = /^[a-z0-9_]{1,40}$/;
 /** Id usado pela torre da loja; nenhum personagem pode usá-lo. */
 export const RESERVED_CHARACTER_IDS: readonly string[] = ['torre'];
 
@@ -23,6 +24,8 @@ export const gameContentSchema = z
     rotation: synergyRotationConfigSchema,
     /** Rotação 0: personagem → sinergia. Precisa cobrir todos os personagens ativos, com ao menos 4 em cada sinergia. */
     initialSynergyMapping: z.record(z.string(), z.string()),
+    /** Sprites do que não é personagem (cavalo, protagonista, torre...), por chave (veja `auxiliarySprites.ts`). */
+    auxiliarySprites: z.record(z.string().regex(AUXILIARY_SPRITE_KEY_PATTERN, 'Chave de sprite auxiliar inválida.'), spriteDefinitionSchema).default({}),
   })
   .superRefine((content, context) => {
     const addIssue = (path: (string | number)[], message: string) => context.addIssue({ code: 'custom', path, message });
@@ -40,6 +43,12 @@ export const gameContentSchema = z
         addIssue(['characters', position, 'sprite', 'path'], 'O sprite precisa ser enviado pelo painel (caminho /sprites/<id>-<hash>.png).');
       }
     });
+
+    for (const [key, sprite] of Object.entries(content.auxiliarySprites)) {
+      if (!SPRITE_PATH_PATTERN.test(sprite.path)) {
+        addIssue(['auxiliarySprites', key, 'path'], 'O sprite precisa ser enviado pelo painel (caminho /sprites/<id>-<hash>.png).');
+      }
+    }
 
     const synergyIds = new Set<string>();
     content.synergies.forEach((synergy, position) => {

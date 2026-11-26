@@ -2,11 +2,14 @@ import Phaser from 'phaser';
 import type { AbilityVisualInfo } from '@combat/engine/events';
 import type { BoardProjection } from '@shared/utils/boardProjection';
 import type { Point } from '@shared/utils/hex';
+import { bySize } from '../layout/displayProfile';
 import { FLOATING_TEXT_DEPTH, PROJECTILE_DEPTH } from '../sprites/UnitView';
+import { addText } from '../ui/theme';
 import { markTransient } from './transient';
 
 const HEX_WIDTH_FACTOR = Math.sqrt(3);
-const EFFECT_DEPTH = 100;
+/** Anéis e explosões ficam no chão, por baixo dos personagens. */
+const EFFECT_DEPTH = -840;
 
 function toColorNumber(color: string): number {
   return Phaser.Display.Color.HexStringToColor(color).color;
@@ -63,10 +66,10 @@ function fallingCubes(scene: Phaser.Scene, center: Point, diameter: number, colo
 }
 
 /** Nome da habilidade que sobe acima de quem a usou. */
-export function showAbilityName(scene: Phaser.Scene, name: string, position: Point, color: string): void {
+export function showAbilityName(scene: Phaser.Scene, name: string, position: Point, color: string, icon?: string): void {
+  const content = icon ? `${icon} ${name}` : name;
   const label = markTransient(
-    scene.add
-      .text(position.x, position.y, name, { fontFamily: 'Arial', fontSize: '15px', color, fontStyle: 'bold', stroke: '#000000', strokeThickness: 4 })
+    addText(scene, position.x, position.y, content, { fontSize: bySize('16px', '25px'), color, fontStyle: 'bold', stroke: '#000000', strokeThickness: 4, padding: { x: 2, y: 3 } })
       .setOrigin(0.5)
       .setDepth(FLOATING_TEXT_DEPTH + 1),
   );

@@ -143,6 +143,28 @@ export function setCharacterActive(content: GameContent, index: number, isActive
   return next;
 }
 
+export type IconField = 'icon' | 'projectileIcon';
+
+/** Troca (ou remove, com texto vazio) o ícone da habilidade ou do projétil de um personagem. */
+export function setCharacterIcon(content: GameContent, index: number, iconField: IconField, text: string): EditResult {
+  const next = cloneContent(content);
+  const character = next.characters[index];
+  if (!character) {
+    return { ok: false, error: 'Personagem inexistente.' };
+  }
+  const icon = text.trim();
+  if (icon === '') {
+    delete character.ability.visual[iconField];
+  } else {
+    character.ability.visual[iconField] = icon;
+  }
+  const parsed = characterSchema.safeParse(character);
+  if (!parsed.success) {
+    return { ok: false, error: describeIssues(parsed.error) };
+  }
+  return { ok: true, content: next };
+}
+
 export interface ImportOptions {
   /** Importa tudo como inativo (não aparece na loja até ser colocado numa sinergia). */
   readonly asInactive: boolean;

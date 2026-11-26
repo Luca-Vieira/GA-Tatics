@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAXIMUM_PLAYERS, MINIMUM_PLAYERS } from '@core/game/Game';
 import { NO_ROOM_MODIFIERS, roomModifiersSchema } from '@data/schemas/roomModifiers';
 
 /**
@@ -26,6 +27,9 @@ const roomPasswordSchema = z
 
 const roomVisibilitySchema = z.enum(['public', 'private']);
 
+/** Tamanho de sala quando quem cria não escolhe (e o da partida rápida). */
+export const DEFAULT_PLAYERS_PER_ROOM = 4;
+
 const roomCodeSchema = z
   .string()
   .trim()
@@ -48,10 +52,16 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     /** Senha opcional (vale para sala pública ou privada). */
     password: roomPasswordSchema.optional(),
     modifiers: roomModifiersSchema.default(NO_ROOM_MODIFIERS),
+    /** Total de jogadores da partida; as vagas sem pessoa viram bots. */
+    maximumPlayers: z.number().int().min(MINIMUM_PLAYERS).max(MAXIMUM_PLAYERS).default(DEFAULT_PLAYERS_PER_ROOM),
   }),
   z.strictObject({ type: z.literal('join_room'), roomCode: roomCodeSchema, playerName: playerNameSchema, password: roomPasswordSchema.optional() }),
   z.strictObject({ type: z.literal('list_rooms') }),
   z.strictObject({ type: z.literal('quick_match'), playerName: playerNameSchema }),
+  /** Assistir a uma partida em andamento, sem ocupar vaga. */
+  z.strictObject({ type: z.literal('spectate_room'), roomCode: roomCodeSchema, password: roomPasswordSchema.optional() }),
+  /** Só para quem assiste: passa a acompanhar outro jogador. */
+  z.strictObject({ type: z.literal('watch_player'), playerId: z.string().min(1).max(40) }),
   z.strictObject({ type: z.literal('leave_room') }),
   z.strictObject({ type: z.literal('start_match') }),
   z.strictObject({ type: z.literal('buy'), shopSlot: z.number().int().min(0).max(9) }),

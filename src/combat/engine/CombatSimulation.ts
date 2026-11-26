@@ -1,4 +1,5 @@
 import { BOARD_CELLS, isInsideBoard, type BoardSide } from '@shared/constants/board';
+import { attackAreaCells, canAttackFrom, defaultFacingOf, facingTowards, sweepTowards } from '@shared/utils/attackArea';
 import { hexDistance, hexKey, type Hex } from '@shared/utils/hex';
 import { SeededRandom } from '@shared/utils/random';
 import { castOnFirstHit, tryCastReadyAbility } from '../abilities/abilityCaster';
@@ -6,15 +7,15 @@ import { rollRandomAttack } from '../abilities/registeredBehaviors';
 import { applyStatusToUnit, findStatus, removeStatus, type StatusInstance, type StatusSpec } from '../effects/status';
 import { computeModifiers, type UnitModifiers } from '../effects/modifiers';
 import { findRetreatCell, isTooCloseToEnemies } from '../movement/retreat';
-import { findShortestPath } from '../pathfinding/bfs';
+import { findPathToBestCell, findShortestPath } from '../pathfinding/bfs';
 import { selectTarget } from '../targeting/targeting';
 import { createCombatUnit, createSummonUnit } from '../units/createCombatUnit';
 import { calculateDamageTaken } from '../units/damage';
-import { countsForResult, type CombatUnit, type UnitSpec } from '../units/unit';
+import { countsForResult, turnTowards, type CombatUnit, type UnitSpec } from '../units/unit';
 import { COMBAT_STEP_MS, DEFAULT_COMBAT_TIME_LIMIT_MS } from './constants';
 import type { CombatEvent } from './events';
 import { buildCombatResult, type CombatResult } from './result';
-import type { CombatWorld, DamageOptions, DecoyRequest, TrapRequest } from './world';
+import type { CombatWorld, DamageOptions, DecoyRequest, SummonSpawnRequest, TrapRequest } from './world';
 
 export interface CombatConfig {
   /** Semente do combate: toda aleatoriedade das regras (ataques do Moço, confusão) vem dela. */
@@ -198,21 +199,47 @@ export class CombatSimulation implements CombatWorld {
     });
     this.unitList.push(decoy);
     this.registerUnit(decoy);
-    this.emit({ type: 'spawn', timeMs: this.elapsedMs, unitId: decoy.id, name: decoy.name, side: decoy.side, cell: decoy.cell, ownerId: request.ownerId });
+    this.emitSpawnEvent(decoy, request.ownerId);
+  }
+
+  spawnSummons(request: SummonSpawnRequest): void {
+    for (let created = 0; created < request.summon.count; created++) {
+      const cell = this.findFreeCellNear(request.anchor, request.towards);
+      if (!cell) {
+        return;
+      }
+      const summon = createSummonUnit({
+        id: `${request.ownerId}~${request.summon.name}${++this.spawnCount}`,
+        name: request.summon.name,
+        side: request.side,
+        cell,
+        stats: request.summon.stats,
+        starMultiplier: request.starMultiplier,
+        ownerId: request.ownerId,
+        expiresAtMs: this.elapsedMs + request.summon.lifetimeMs,
+      });
+      this.unitList.push(summon);
+      this.registerUnit(summon);
+      this.emitSpawnEvent(summon, request.ownerId);
+    }
+  }
+
+  private emitSpawnEvent(unit: CombatUnit, ownerId: string): void {
+    this.emit({
+      type: 'spawn',
+      timeMs: this.elapsedMs,
+      unitId: unit.id,
+      name: unit.name,
+      side: unit.side,
+      cell: unit.cell,
+      ownerId,
+      auxiliarySpriteKey: unit.auxiliarySpriteKey ?? '',
+    });
   }
 
   private emitDamageEvent(source: CombatUnit | null, target: CombatUnit, damage: number, options: DamageOptions): void {
-    if (options.cause === 'attack') {
-      this.emit({
-        type: 'attack',
-        timeMs: this.elapsedMs,
-        attackerId: source?.id ?? '',
-        targetId: target.id,
-        damage,
-        targetHealthAfter: target.health,
-        isRanged: (source?.stats.range ?? MELEE_RANGE) > MELEE_RANGE,
-        missed: false,
-      });
+    if (options.cause === 'attack' && source) {
+      this.emitAttackEvent(source, target, damage, false);
       return;
     }
     this.emit({
@@ -222,7 +249,27 @@ export class CombatSimulation implements CombatWorld {
       targetId: target.id,
       amount: damage,
       healthAfter: target.health,
-      cause: options.cause,
+      cause: options.cause === 'attack' ? 'splash' : options.cause,
+    });
+  }
+
+  private emitAttackEvent(attacker: CombatUnit, target: CombatUnit, damage: number, missed: boolean): void {
+    const { shape } = attacker.attack;
+    const facing = facingTowards(attacker.cell, target.cell, defaultFacingOf(attacker.side));
+    this.emit({
+      type: 'attack',
+      timeMs: this.elapsedMs,
+      attackerId: attacker.id,
+      targetId: target.id,
+      damage,
+      targetHealthAfter: target.health,
+      isRanged: attacker.stats.range > MELEE_RANGE,
+      missed,
+      shape,
+      facing,
+      origin: attacker.cell,
+      areaCells: attackAreaCells(attacker.cell, shape, attacker.stats.range, facing, sweepTowards(attacker.cell, target.cell, attacker.sweep)),
+      projectileIcon: attacker.ability?.visual.projectileIcon,
     });
   }
 
@@ -308,7 +355,7 @@ export class CombatSimulation implements CombatWorld {
         this.removeTrap(trap, 'expired');
       } else if (this.elapsedMs >= trap.armedAtMs && this.isEnemyNearTrap(trap)) {
         this.removeTrap(trap, 'triggered');
-        this.spawnSummons(trap);
+        this.spawnSummons({ ...trap, anchor: trap.cell, towards: trap.cell });
       }
     }
   }
@@ -322,31 +369,12 @@ export class CombatSimulation implements CombatWorld {
     this.emit({ type: 'trap', timeMs: this.elapsedMs, trapId: trap.id, change, cell: trap.cell, side: trap.side });
   }
 
-  private spawnSummons(trap: ActiveTrap): void {
-    for (let created = 0; created < trap.summon.count; created++) {
-      const cell = this.findFreeCellNear(trap.cell);
-      if (!cell) {
-        return;
-      }
-      const summon = createSummonUnit({
-        id: `${trap.ownerId}~${trap.summon.name}${++this.spawnCount}`,
-        name: trap.summon.name,
-        side: trap.side,
-        cell,
-        stats: trap.summon.stats,
-        starMultiplier: trap.starMultiplier,
-        ownerId: trap.ownerId,
-        expiresAtMs: this.elapsedMs + trap.summon.lifetimeMs,
-      });
-      this.unitList.push(summon);
-      this.registerUnit(summon);
-      this.emit({ type: 'spawn', timeMs: this.elapsedMs, unitId: summon.id, name: summon.name, side: summon.side, cell, ownerId: trap.ownerId });
-    }
-  }
-
-  private findFreeCellNear(origin: Hex): Hex | null {
+  private findFreeCellNear(anchor: Hex, towards: Hex): Hex | null {
     const freeCells = BOARD_CELLS.filter((cell) => this.isCellFree(cell));
-    freeCells.sort((first, second) => hexDistance(origin, first) - hexDistance(origin, second) || first.r - second.r || first.q - second.q);
+    freeCells.sort(
+      (first, second) =>
+        hexDistance(anchor, first) - hexDistance(anchor, second) || hexDistance(towards, first) - hexDistance(towards, second) || first.r - second.r || first.q - second.q,
+    );
     return freeCells[0] ?? null;
   }
 
@@ -369,37 +397,54 @@ export class CombatSimulation implements CombatWorld {
     if (tryCastReadyAbility(this, unit, target)) {
       return;
     }
-    if (!target) {
+    if (!target || !target.alive) {
       return;
     }
+    turnTowards(unit, target.cell);
 
-    const isTargetInRange = hexDistance(unit.cell, target.cell) <= unit.stats.range;
-    if (isTargetInRange && this.attackIfReady(unit, target, modifiers)) {
+    if (!this.canAttack(unit, target)) {
+      this.advanceIfReady(unit, target, modifiers);
       return;
     }
-    if (this.retreatIfNeeded(unit, modifiers)) {
-      return;
-    }
-    if (!isTargetInRange) {
-      this.advanceTowardIfReady(unit, target, modifiers);
+    unit.hasReachedTarget = true;
+    if (!this.attackIfReady(unit, target, modifiers)) {
+      this.retreatIfNeeded(unit, target, modifiers);
     }
   }
 
-  /** Mantém o alvo enquanto ele estiver vivo; caso contrário escolhe outro segundo o perfil do personagem. */
+  private canAttack(unit: CombatUnit, target: CombatUnit, fromCell: Hex = unit.cell): boolean {
+    return canAttackFrom(fromCell, target.cell, unit.attack.shape, unit.stats.range, unit.side);
+  }
+
+  /**
+   * Mantém o alvo enquanto ele estiver vivo e na área de ataque. Se ele está fora da área e há outro inimigo dentro,
+   * troca. Quem mira no mais distante só troca assim depois de ter alcançado o alvo (senão nunca chegaria a ele).
+   */
   private resolveTarget(unit: CombatUnit): CombatUnit | null {
     // Um clone provocador por perto manda no alvo, mesmo que o atual ainda esteja vivo.
     const taunter = this.findTauntingDecoy(unit);
     if (taunter) {
-      unit.targetId = taunter.id;
-      return taunter;
+      return this.assignTarget(unit, taunter);
     }
     const currentTarget = unit.targetId === null ? undefined : this.unitsById.get(unit.targetId);
-    if (currentTarget?.alive) {
+    if (!currentTarget?.alive) {
+      return this.assignTarget(unit, selectTarget(unit, this.unitList));
+    }
+    const isStillSeekingFarTarget = unit.behavior.targetPriority === 'farthest' && !unit.hasReachedTarget;
+    if (isStillSeekingFarTarget || this.canAttack(unit, currentTarget)) {
       return currentTarget;
     }
-    const newTarget = selectTarget(unit, this.unitList);
-    unit.targetId = newTarget?.id ?? null;
-    return newTarget;
+    const targetInArea = selectTarget(unit, this.unitList, (enemy) => this.canAttack(unit, enemy));
+    return targetInArea ? this.assignTarget(unit, targetInArea) : currentTarget;
+  }
+
+  private assignTarget(unit: CombatUnit, target: CombatUnit | null): CombatUnit | null {
+    const newTargetId = target?.id ?? null;
+    if (unit.targetId !== newTargetId) {
+      unit.targetId = newTargetId;
+      unit.hasReachedTarget = false;
+    }
+    return target;
   }
 
   /** Clone inimigo vivo mais próximo cujo raio de provocação alcança a unidade; empate pelo menor id. */
@@ -429,14 +474,33 @@ export class CombatSimulation implements CombatWorld {
 
     const roll = this.rollAttack(attacker, modifiers);
     if (roll.missed) {
-      this.emitMissedAttack(attacker, target);
+      this.emitAttackEvent(attacker, target, 0, true);
       return true;
     }
+    const extraTargets = this.extraTargetsOf(attacker, target);
     this.dealDamage(attacker, target, roll.rawDamage, { cause: 'attack' });
+    for (const extraTarget of extraTargets) {
+      this.dealDamage(attacker, extraTarget, roll.rawDamage * attacker.attack.splashDamageFraction, { cause: 'splash' });
+    }
     if (target.alive) {
       castOnFirstHit(this, attacker, target);
     }
     return true;
+  }
+
+  /** Outros inimigos que o mesmo golpe acerta (formatos com mais de um alvo), do mais próximo do alvo ao mais distante. */
+  private extraTargetsOf(attacker: CombatUnit, primary: CombatUnit): CombatUnit[] {
+    const { shape, maxTargets } = attacker.attack;
+    if (maxTargets <= 1) {
+      return [];
+    }
+    const facing = facingTowards(attacker.cell, primary.cell, defaultFacingOf(attacker.side));
+    const sweep = sweepTowards(attacker.cell, primary.cell, attacker.sweep);
+    const coveredCells = new Set(attackAreaCells(attacker.cell, shape, attacker.stats.range, facing, sweep).map(hexKey));
+    return this.aliveEnemiesOf(attacker)
+      .filter((enemy) => enemy.id !== primary.id && coveredCells.has(hexKey(enemy.cell)))
+      .sort((first, second) => hexDistance(primary.cell, first.cell) - hexDistance(primary.cell, second.cell) || compareById(first, second))
+      .slice(0, maxTargets - 1);
   }
 
   /** Dano do ataque (normal ou aleatório) e se ele erra por confusão. */
@@ -463,19 +527,6 @@ export class CombatSimulation implements CombatWorld {
     return missed;
   }
 
-  private emitMissedAttack(attacker: CombatUnit, target: CombatUnit): void {
-    this.emit({
-      type: 'attack',
-      timeMs: this.elapsedMs,
-      attackerId: attacker.id,
-      targetId: target.id,
-      damage: 0,
-      targetHealthAfter: target.health,
-      isRanged: attacker.stats.range > MELEE_RANGE,
-      missed: true,
-    });
-  }
-
   private killUnit(unit: CombatUnit): void {
     unit.alive = false;
     this.cellOccupants.delete(hexKey(unit.cell));
@@ -486,35 +537,77 @@ export class CombatSimulation implements CombatWorld {
     return this.unitList.filter((candidate) => candidate.alive && candidate.side !== unit.side);
   }
 
-  /** Personagens "kite" recuam quando um inimigo chega perto demais. Devolve verdadeiro se recuou. */
-  private retreatIfNeeded(unit: CombatUnit, modifiers: UnitModifiers): boolean {
-    if (this.elapsedMs < unit.nextMoveAtMs) {
-      return false;
-    }
-    const enemies = this.aliveEnemiesOf(unit);
-    if (!isTooCloseToEnemies(unit, enemies)) {
-      return false;
-    }
-    const retreatCell = findRetreatCell(unit, enemies, (cell) => this.isCellFree(cell));
-    if (!retreatCell) {
-      return false;
-    }
-    this.moveUnit(unit, retreatCell, modifiers);
-    return true;
-  }
-
-  private advanceTowardIfReady(unit: CombatUnit, target: CombatUnit, modifiers: UnitModifiers): void {
+  /**
+   * Personagens "kite" recuam quando um inimigo chega perto demais. Só recuam com o alvo na área, entre os ataques,
+   * e preferem casas de onde continuam alcançando o alvo (senão ficariam indo e voltando).
+   */
+  private retreatIfNeeded(unit: CombatUnit, target: CombatUnit, modifiers: UnitModifiers): void {
     if (this.elapsedMs < unit.nextMoveAtMs) {
       return;
     }
-    const path = findShortestPath(unit.cell, {
-      isWalkable: (cell) => this.isCellFree(cell),
-      isGoal: (cell) => this.isCellFree(cell) && hexDistance(cell, target.cell) <= unit.stats.range,
-    });
+    const enemies = this.aliveEnemiesOf(unit);
+    if (!isTooCloseToEnemies(unit, enemies)) {
+      return;
+    }
+    const retreatCell = findRetreatCell(
+      unit,
+      enemies,
+      (cell) => this.isCellFree(cell),
+      (cell) => this.canAttack(unit, target, cell),
+    );
+    if (retreatCell) {
+      this.moveUnit(unit, retreatCell, modifiers);
+    }
+  }
+
+  /**
+   * Anda até uma casa de onde alcança o alvo. Se não há caminho, troca para um alvo alcançável; se não há nenhum,
+   * chega o mais perto possível de algum inimigo.
+   */
+  private advanceIfReady(unit: CombatUnit, target: CombatUnit, modifiers: UnitModifiers): void {
+    if (this.elapsedMs < unit.nextMoveAtMs) {
+      return;
+    }
+    const path = this.findPathToAttack(unit, target) ?? this.switchToReachableTarget(unit, target) ?? this.findPathCloserToEnemies(unit);
     const nextCell = path?.[0];
     if (nextCell) {
       this.moveUnit(unit, nextCell, modifiers);
     }
+  }
+
+  private findPathToAttack(unit: CombatUnit, target: CombatUnit): Hex[] | null {
+    return findShortestPath(unit.cell, {
+      isWalkable: (cell) => this.isCellFree(cell),
+      isGoal: (cell) => this.isCellFree(cell) && this.canAttack(unit, target, cell),
+    });
+  }
+
+  /** Tenta os outros inimigos na ordem de preferência do personagem. Um clone provocador não é trocado. */
+  private switchToReachableTarget(unit: CombatUnit, unreachableTarget: CombatUnit): Hex[] | null {
+    if (unreachableTarget.isDecoy) {
+      return null;
+    }
+    const triedIds = new Set([unreachableTarget.id]);
+    let candidate = selectTarget(unit, this.unitList, (enemy) => !triedIds.has(enemy.id));
+    while (candidate) {
+      const path = this.findPathToAttack(unit, candidate);
+      if (path) {
+        this.assignTarget(unit, candidate);
+        turnTowards(unit, candidate.cell);
+        return path;
+      }
+      triedIds.add(candidate.id);
+      candidate = selectTarget(unit, this.unitList, (enemy) => !triedIds.has(enemy.id));
+    }
+    return null;
+  }
+
+  private findPathCloserToEnemies(unit: CombatUnit): Hex[] | null {
+    const enemies = this.aliveEnemiesOf(unit);
+    return findPathToBestCell(unit.cell, {
+      isWalkable: (cell) => this.isCellFree(cell),
+      scoreOf: (cell) => Math.min(...enemies.map((enemy) => hexDistance(cell, enemy.cell))),
+    });
   }
 
   private moveUnit(unit: CombatUnit, destination: Hex, modifiers: UnitModifiers): void {
@@ -528,9 +621,14 @@ export class CombatSimulation implements CombatWorld {
 
   // --- Fim do combate -----------------------------------------------------------------------------
 
+  /**
+   * O combate segue enquanto os dois lados tiverem algo em campo (lutadores ou torre) e ao menos um tiver lutadores:
+   * um lado só com a torre continua sendo atacado até ela cair ou o tempo acabar.
+   */
   private finishIfCombatIsOver(): void {
-    const hasAliveUnitsOnBothSides = this.hasAliveUnits('A') && this.hasAliveUnits('B');
-    if (!hasAliveUnitsOnBothSides) {
+    const bothSidesStillStanding = this.isStillStanding('A') && this.isStillStanding('B');
+    const someoneCanStillFight = this.hasAliveUnits('A') || this.hasAliveUnits('B');
+    if (!bothSidesStillStanding || !someoneCanStillFight) {
       this.finalResult = buildCombatResult(this.unitList, 'elimination', this.elapsedMs);
       return;
     }
@@ -539,13 +637,17 @@ export class CombatSimulation implements CombatWorld {
     }
   }
 
+  private isStillStanding(side: BoardSide): boolean {
+    return this.hasAliveUnits(side) || this.unitList.some((unit) => unit.side === side && unit.alive && unit.isStructure);
+  }
+
   /** Invocações não seguram o combate: só conta quem foi colocado no tabuleiro. */
   private hasAliveUnits(side: BoardSide): boolean {
     return this.unitList.some((unit) => unit.side === side && unit.alive && countsForResult(unit));
   }
 }
 
-function compareById(first: UnitSpec, second: UnitSpec): number {
+function compareById(first: { readonly id: string }, second: { readonly id: string }): number {
   if (first.id === second.id) {
     return 0;
   }

@@ -1,10 +1,10 @@
 import { axialToOffset, hexDistance, hexKey, offsetToAxial, type Hex } from '../utils/hex';
 
 /**
- * Tabuleiro: 8 linhas x 5 colunas = 40 casas, 20 por jogador (decisão registrada em decisoes-de-design.md).
- * Linhas 0 a 3 pertencem ao lado A; linhas 4 a 7 ao lado B.
+ * Tabuleiro: 12 linhas x 5 colunas = 60 casas, 30 por jogador (decisão registrada em decisoes-de-design.md).
+ * As linhas são o eixo de batalha: 0 a 5 pertencem ao lado A; 6 a 11 ao lado B. A tela o desenha deitado.
  */
-export const BOARD_ROWS = 8;
+export const BOARD_ROWS = 12;
 export const BOARD_COLUMNS = 5;
 export const ROWS_PER_SIDE = BOARD_ROWS / 2;
 

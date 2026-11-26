@@ -7,6 +7,7 @@
   "rarity": "common",
   "stats": { "health": 4, "damage": 5, "attackSpeed": 9, "range": 4, "mobility": 5 },
   "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 3 },
+  "attack": { "shape": "front_line" },
   "ability": {
     "id": "magic_cube_rain",
     "name": "Chuva de cubo mágico",
@@ -15,6 +16,6 @@
     "cooldownSeconds": 6,
     "cast": { "target": "enemy_cluster", "range": 4, "areaRadius": 1 },
     "effects": [{ "type": "damage", "targets": "enemies_in_area", "multiplier": 1.4 }],
-    "visual": { "kind": "rain", "color": "#a855f7" }
+    "visual": { "kind": "rain", "color": "#a855f7", "icon": "🎲", "projectileIcon": "🎲" }
   }
 }

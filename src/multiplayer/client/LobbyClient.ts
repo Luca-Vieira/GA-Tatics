@@ -1,5 +1,7 @@
+import type { GameContent } from '@data/schemas/content';
 import { NO_ROOM_MODIFIERS, type RoomModifiers } from '@data/schemas/roomModifiers';
-import type { RoomMemberView, RoomStatus, RoomSummaryView, RoomVisibility, ServerErrorCode, ServerMessage } from '../protocol/serverMessages';
+import { DEFAULT_PLAYERS_PER_ROOM } from '../protocol/clientMessages';
+import type { MatchSetupView, RoomMemberView, RoomStatus, RoomSummaryView, RoomVisibility, ServerErrorCode, ServerMessage } from '../protocol/serverMessages';
 import { RemoteMatchSession } from './RemoteMatchSession';
 import type { ServerConnection } from './ServerConnection';
 
@@ -11,15 +13,26 @@ export interface LobbyState {
   readonly visibility: RoomVisibility;
   readonly hasPassword: boolean;
   readonly modifiers: RoomModifiers;
+  readonly maximumPlayers: number;
 }
 
-const EMPTY_STATE: LobbyState = { roomCode: null, playerId: null, status: 'lobby', members: [], visibility: 'public', hasPassword: false, modifiers: NO_ROOM_MODIFIERS };
+const EMPTY_STATE: LobbyState = {
+  roomCode: null,
+  playerId: null,
+  status: 'lobby',
+  members: [],
+  visibility: 'public',
+  hasPassword: false,
+  modifiers: NO_ROOM_MODIFIERS,
+  maximumPlayers: DEFAULT_PLAYERS_PER_ROOM,
+};
 
 /** O que quem cria a sala escolhe. */
 export interface CreateRoomOptions {
   readonly visibility?: RoomVisibility;
   readonly password?: string;
   readonly modifiers?: Partial<RoomModifiers>;
+  readonly maximumPlayers?: number;
 }
 
 export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = {
@@ -35,6 +48,10 @@ export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = 
   match_in_progress: 'A partida dessa sala já começou.',
   not_host: 'Só o anfitrião pode iniciar a partida.',
   no_match_running: 'Não há partida em andamento.',
+  spectators_full: 'Essa partida já tem o máximo de espectadores.',
+  spectator_cannot_act: 'Quem assiste não pode mexer na partida.',
+  not_spectating: 'Você não está assistindo a uma partida.',
+  unknown_player: 'Esse jogador não está na partida.',
   server_full: 'O servidor está cheio. Tente de novo mais tarde.',
   internal_error: 'Erro no servidor.',
 };
@@ -53,6 +70,7 @@ export class LobbyClient {
   private readonly errorHandlers = new Set<(message: string) => void>();
   private readonly matchHandlers = new Set<(session: RemoteMatchSession) => void>();
   private readonly staleHandlers = new Set<() => void>();
+  private readonly roomClosedHandlers = new Set<(notice: string) => void>();
   private contentIsStale = false;
 
   constructor(private readonly connection: ServerConnection) {
@@ -71,6 +89,16 @@ export class LobbyClient {
   /** Salas públicas da última consulta (`refreshRooms`). */
   get rooms(): readonly RoomSummaryView[] {
     return this.currentRooms;
+  }
+
+  /** Conteúdo do jogo vigente no servidor quando a conexão foi aberta. */
+  get content(): GameContent {
+    return this.connection.content.content;
+  }
+
+  /** Endereço HTTP de onde saem os sprites do servidor. */
+  get spriteBaseUrl(): string {
+    return this.connection.httpBaseUrl;
   }
 
   get isConnected(): boolean {
@@ -102,11 +130,17 @@ export class LobbyClient {
       visibility: options.visibility ?? 'public',
       ...(options.password ? { password: options.password } : {}),
       modifiers: { ...NO_ROOM_MODIFIERS, ...options.modifiers },
+      maximumPlayers: options.maximumPlayers ?? DEFAULT_PLAYERS_PER_ROOM,
     });
   }
 
   joinRoom(roomCode: string, playerName: string, password?: string): void {
     this.connection.send({ type: 'join_room', roomCode, playerName, ...(password ? { password } : {}) });
+  }
+
+  /** Assiste a uma partida em andamento; a sessão chega em `onMatchStarted`. */
+  spectate(roomCode: string, password?: string): void {
+    this.connection.send({ type: 'spectate_room', roomCode, ...(password ? { password } : {}) });
   }
 
   leaveRoom(): void {
@@ -149,6 +183,12 @@ export class LobbyClient {
     return () => this.staleHandlers.delete(handler);
   }
 
+  /** A sala foi encerrada por fora (administrador, ou os jogadores saíram); vem com o motivo. */
+  onRoomClosed(handler: (notice: string) => void): () => void {
+    this.roomClosedHandlers.add(handler);
+    return () => this.roomClosedHandlers.delete(handler);
+  }
+
   onConnectionClosed(handler: () => void): () => void {
     return this.connection.onClose(handler);
   }
@@ -159,6 +199,10 @@ export class LobbyClient {
         this.update({ ...this.currentState, roomCode: message.roomCode, playerId: message.playerId });
         return;
       case 'room_state':
+        // Um estado que chegue atrasado, depois de a pessoa sair, não a leva de volta para a sala.
+        if (message.roomCode !== this.currentState.roomCode) {
+          return;
+        }
         this.update({
           ...this.currentState,
           roomCode: message.roomCode,
@@ -167,6 +211,7 @@ export class LobbyClient {
           visibility: message.visibility,
           hasPassword: message.hasPassword,
           modifiers: message.modifiers,
+          maximumPlayers: message.maximumPlayers,
         });
         return;
       case 'room_list':
@@ -174,7 +219,10 @@ export class LobbyClient {
         this.roomListHandlers.forEach((handler) => handler());
         return;
       case 'room_closed':
-        this.update(EMPTY_STATE);
+        this.closeRoom(message.notice);
+        return;
+      case 'spectate_started':
+        this.startSpectatorSession(message);
         return;
       case 'content_updated':
         this.markContentStale(message.contentVersion);
@@ -192,18 +240,32 @@ export class LobbyClient {
 
   private startMatchSession(message: Extract<ServerMessage, { type: 'match_started' }>): void {
     const playerId = this.currentState.playerId;
-    if (playerId === null) {
-      return;
+    if (playerId !== null) {
+      this.openSession(playerId, message, false);
     }
+  }
+
+  private startSpectatorSession(message: Extract<ServerMessage, { type: 'spectate_started' }>): void {
+    this.openSession(message.watchedPlayerId, message, true);
+  }
+
+  private openSession(humanId: string, setup: MatchSetupView, isSpectator: boolean): void {
     const { version, content } = this.connection.content;
-    if (message.contentVersion !== version) {
+    if (setup.contentVersion !== version) {
       // A partida foi criada com conteúdo que esta página não tem: sair da sala (o bot assume) e pedir para recarregar.
-      this.markContentStale(message.contentVersion);
+      this.markContentStale(setup.contentVersion);
       this.leaveRoom();
       return;
     }
-    const session = new RemoteMatchSession(this.connection, playerId, message, content, this.connection.httpBaseUrl);
+    const session = new RemoteMatchSession(this.connection, humanId, setup, content, this.connection.httpBaseUrl, { isSpectator, leaveRoom: () => this.leaveRoom() });
     this.matchHandlers.forEach((handler) => handler(session));
+  }
+
+  private closeRoom(notice: string | undefined): void {
+    this.update(EMPTY_STATE);
+    if (notice) {
+      [...this.roomClosedHandlers].forEach((handler) => handler(notice));
+    }
   }
 
   private markContentStale(serverVersion: number): void {

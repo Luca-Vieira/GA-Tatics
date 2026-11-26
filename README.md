@@ -3,7 +3,7 @@
 # 🏢 Merge do Escritório
 
 **Um auto battler casual de navegador, com humor de escritório.**
-Monte sua equipe, funda três cópias para evoluir e sobreviva às rodadas contra mais três jogadores.
+Monte sua equipe, funda três cópias para evoluir e sobreviva às rodadas contra os outros jogadores.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6?logo=typescript&logoColor=white)
 ![Phaser](https://img.shields.io/badge/Phaser-3.90-8b5cf6)
@@ -17,20 +17,22 @@ Monte sua equipe, funda três cópias para evoluir e sobreviva às rodadas contr
 
 ## 🎮 O jogo
 
-Quatro jogadores por partida (as vagas livres são preenchidas por bots), partidas de **6 a 10 minutos**, só no navegador.
+De **2 a 8 jogadores** por partida (as vagas livres são preenchidas por bots), só no navegador, no computador ou no celular.
 A cada rodada você **prepara** a equipe e depois assiste ao **combate automático** contra um adversário. Quem perde um combate perde vidas; quem fica sem vidas é eliminado. Vence o último de pé.
 
 ### Como funciona uma rodada
 
 1. **Preparação.** Receba moedas (mais juros sobre as economizadas), compre personagens na loja, organize o tabuleiro e a reserva. Cartas da loja podem ser **congeladas** para a próxima rodada.
 2. **Fusão.** Três cópias iguais viram uma de ⭐⭐ (e três de ⭐⭐ viram ⭐⭐⭐): mais vida e mais dano.
-3. **Sinergias.** Cada personagem pertence a uma sinergia (**Operacional**, **Gestão** ou **Caos**, e dá para criar outras). Reunir 2 ou 4 do mesmo grupo no tabuleiro ativa bônus de equipe. A distribuição **rotaciona a cada 2 dias**, então a estratégia nunca fica velha.
-4. **Combate.** Tudo é automático: movimento, alvo, ataques e habilidades. Clique ou arraste uma unidade para ver o **alcance de ataque**.
+3. **Sinergias.** Cada personagem pertence a uma sinergia (**Operacional**, **Gestão** ou **Caos**, e dá para criar outras). Reunir 2 ou 4 do mesmo grupo no tabuleiro ativa bônus de equipe. A distribuição **rotaciona todo dia**, então a estratégia nunca fica velha.
+4. **Combate.** Tudo é automático: movimento, alvo, ataques e habilidades. Cada personagem tem a sua **área de ataque** (faixa, diagonais, foice, semicírculo e outras); toque numa unidade, antes ou durante o combate, para ver a área e os atributos.
 5. **Resultado.** Vidas perdidas, eliminações e próxima rodada.
 
 ### Extras
 
-- 🏗️ **Torre:** estrutura rara na loja que rende moedas enquanto estiver de pé. Os inimigos podem atacá-la, e se for destruída some para sempre.
+- 🏗️ **Torre:** estrutura rara na loja que rende moedas enquanto estiver de pé. Os inimigos podem atacá-la; se for destruída, some para sempre e você recebe 2 moedas na rodada seguinte.
+- 📖 **Personagens:** galeria no saguão para consultar e comparar o elenco.
+- 🔊 **Som:** música e efeitos, com controles separados.
 - 🧑‍💼 **Elenco com habilidades próprias:** do tanque que "senta para descansar" ao **Derson**, que cria um clone provocador.
 - 🎲 **Regras de sala:** vidas extras, mais tempo de preparação ou de combate, mais dinheiro e mais status.
 
@@ -40,11 +42,11 @@ A cada rodada você **prepara** a equipe e depois assiste ao **combate automáti
 
 | | |
 | --- | --- |
-| **Multiplayer** | Servidor WebSocket autoritativo, hub com **lista de salas públicas**, **partida rápida**, salas **públicas ou privadas**, **senha** opcional e **regras de sala**. |
+| **Multiplayer** | Servidor WebSocket autoritativo, hub com **lista de salas públicas**, **partida rápida**, salas **públicas ou privadas**, **senha** opcional, **regras de sala**, **modo espectador** e saída no meio da partida (um bot assume a vaga). |
 | **Contra bots** | Partida completa no próprio navegador, sem servidor. |
 | **Determinismo** | O combate roda em passos fixos com semente: o resultado oficial é igual para todos. |
 | **Dados editáveis** | Personagens, habilidades, sinergias e configuração são **dados validados** (Zod), não código. |
-| **Painel de admin** | Cria e edita personagens e sinergias por formulário ou JSON, envia **sprites (PNG)**, importa por texto e baixa uma **referência** do que dá para criar. Ao publicar, os jogadores conectados recebem o aviso para recarregar. |
+| **Painel de admin** | Cria e edita personagens e sinergias por formulário ou JSON, envia e **ajusta sprites (PNG)** com prévia, configura ícones, encerra salas em andamento e baixa uma **referência** do que dá para criar. Ao publicar, os jogadores conectados recebem o aviso para recarregar. |
 | **Balanceamento por testes** | Faixas de vitória por personagem, por sinergia e por partida são verificadas automaticamente. |
 
 ---
@@ -147,8 +149,8 @@ Princípios que o projeto segue:
 
 ## 🗺️ Status
 
-Funcionando: combate, partida completa, loja com congelamento, fusão, sinergias com rotação, torre, regras de sala, multiplayer com hub, painel de administração e sprites.
-Em aberto: reconexão no meio da partida, arte final e sons, tela de espectador.
+Funcionando: combate, partida de 2 a 8 jogadores, loja com congelamento, fusão, sinergias com rotação, torre, regras de sala, multiplayer com hub e espectador, galeria, áudio, painel de administração e sprites.
+Em aberto: reconexão no meio da partida, arte final e testes em celulares reais.
 
 <div align="center">
 
