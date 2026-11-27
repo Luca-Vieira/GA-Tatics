@@ -20,7 +20,7 @@ export const DEFAULT_SYNERGIES: readonly SynergyDefinition[] = [
       {
         threshold: 4,
         effects: [
-          { type: 'resistance_bonus', value: 0.08 },
+          { type: 'resistance_bonus', value: 0.075 },
           { type: 'hp_regen', value: 0.015, tickSeconds: 3 },
         ],
       },

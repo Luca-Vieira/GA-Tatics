@@ -17,14 +17,14 @@ describe('compra', () => {
     expect(player.units[0]!.location).toEqual({ kind: 'bench', slot: 0 });
   });
 
-  it('custa 3, 4 e 5 moedas para comum, raro e especial', () => {
+  it('custa 3 moedas para comum e 4 para raro e especial', () => {
     const player = makePlayer();
     player.coins = 100;
     offerShop(player, 'bixo', 'helder', 'joao_lucas');
     buyFromShop(player, makeContext(), 0);
     buyFromShop(player, makeContext(), 1);
     buyFromShop(player, makeContext(), 2);
-    expect(player.coins).toBe(100 - 3 - 4 - 5);
+    expect(player.coins).toBe(100 - 3 - 4 - 4);
   });
 
   it('recusa sem moedas suficientes', () => {
@@ -143,17 +143,17 @@ describe('venda', () => {
 describe('atualizar a loja', () => {
   const offerSize = DEFAULT_GAME_CONFIG.shop.offerSize;
 
-  it('custa 2 moedas e sorteia novas ofertas', () => {
+  it('custa 1 moeda e sorteia novas ofertas', () => {
     const player = makePlayer();
     player.coins = 5;
     expect(refreshShop(player, makeContext())).toMatchObject({ ok: true });
-    expect(player.coins).toBe(3);
+    expect(player.coins).toBe(4);
     expect(player.shop).toHaveLength(offerSize);
   });
 
   it('recusa sem moedas', () => {
     const player = makePlayer();
-    player.coins = 1;
+    player.coins = 0;
     expect(refreshShop(player, makeContext())).toEqual({ ok: false, reason: 'not_enough_coins' });
   });
 });

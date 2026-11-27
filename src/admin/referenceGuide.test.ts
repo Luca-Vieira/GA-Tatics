@@ -64,7 +64,7 @@ describe('referência exportável de personagens', () => {
   it('lista as sinergias e os custos do conteúdo atual', () => {
     expect(loose.sinergias.atuais.map((synergy: Loose) => synergy.id)).toEqual(['operacional', 'gestao', 'caos']);
     expect(loose.sinergias.atuais.find((synergy: Loose) => synergy.id === 'caos').personagens).toContain('derson');
-    expect(loose.raridadeECusto).toMatchObject({ common: 3, rare: 4, special: 5 });
+    expect(loose.raridadeECusto).toMatchObject({ common: 3, rare: 4, special: 4 });
   });
 
   it('os exemplos não levam sprite', () => {

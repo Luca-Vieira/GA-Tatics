@@ -342,3 +342,16 @@ Onde esta seção contraria as Seções 15 e 21, vale esta.
 - **Loja:** a carta da torre não mostra mais "Fusão!".
 - **Atenção:** um `content.json` já publicado mantém o preço antigo gravado nele.
 
+## 25. João Lucas, Moço e atualização da loja
+
+Onde esta seção contraria uma anterior, vale esta.
+
+- **Problema:** nas partidas de bots, em duelos entre times do mesmo tamanho, o time de João Lucas vencia 29% e o de Moço, 37% (os outros, de 42% a 54%). Custavam 5 moedas (o time deles tinha menos unidades em 37% dos duelos), quase nunca chegavam a 2 estrelas e não eram mais fortes em 1 estrela.
+- **Preço dos especiais:** 5 → **4** (igual ao raro; a chance de aparecer na loja não mudou).
+- **João Lucas:** vida 3 → 4; velocidade de ataque 2 → 2,5.
+- **Moço:** vida 7 → 8; roleta: dano medíocre 2–4 → 3–5 e excelente 8–10 → 9–10 (chances iguais: 5% erra, 35% medíocre, 60% excelente).
+- **Consequências necessárias para as faixas dos testes:** Helder, vida 5 → 5,5 (com os dois mais fortes ele caía para 37% nos times de 3, abaixo do mínimo de 38%); Operacional nível 2, resistência 8% → 7,5% (passava do teto de 72%).
+- **Medido** (36 mil combates e 3 mil partidas): em duelos entre times iguais, João Lucas foi de 29% para 42% e Moço, de 37% para 43%; o time deles passou a ter menos unidades em cerca de 19% dos duelos. Em combate com todos em 1 estrela: João Lucas de 45% para 53% e Moço, de 42% para 50%. Continuam entre os mais baixos nas partidas, por quase nunca evoluírem.
+- **Atualizar a loja:** 2 → **1** moeda (pedido do dono). Os bots nunca atualizam a loja, então as simulações **não medem** o efeito: procurar cópias ficou mais barato, e 2 estrelas devem aparecer mais cedo para quem joga.
+- **Atenção:** um `content.json` já publicado mantém os valores antigos gravados nele.
+

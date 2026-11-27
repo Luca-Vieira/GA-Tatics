@@ -5,7 +5,7 @@
   "description": "Dano de precisão. Fica longe e mira no mais ferido.",
   "category": "sniper",
   "rarity": "special",
-  "stats": { "health": 3, "damage": 7, "attackSpeed": 2, "range": 5, "mobility": 2 },
+  "stats": { "health": 4, "damage": 7, "attackSpeed": 2.5, "range": 5, "mobility": 2 },
   "behavior": { "movement": "kite", "targetPriority": "lowest_health", "preferredDistance": 4 },
   "attack": { "shape": "diagonals" },
   "ability": {

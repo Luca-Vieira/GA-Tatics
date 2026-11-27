@@ -11,8 +11,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
   },
   shop: {
     offerSize: 5,
-    refreshCost: 2,
-    costByRarity: { common: 3, rare: 4, special: 5 },
+    refreshCost: 1,
+    costByRarity: { common: 3, rare: 4, special: 4 },
     rarityWeights: { common: 70, rare: 25, special: 5 },
     sellValueByStar: [1, 3, 8],
   },

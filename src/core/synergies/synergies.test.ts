@@ -14,7 +14,7 @@ describe('contagem e níveis', () => {
 
     const level2 = summarizeSynergies(['bixo', 'wilian', 'wender', 'marquinhos'], INITIAL_SYNERGY_MAPPING, DEFAULT_SYNERGIES);
     expect(statusOf(level2, 'operacional')).toMatchObject({ count: 4, activeTierIndex: 1, nextThreshold: null });
-    expect(computeBonusesForUnit(level2, 'operacional').resistance).toBeCloseTo(0.08);
+    expect(computeBonusesForUnit(level2, 'operacional').resistance).toBeCloseTo(0.075);
   });
 
   it('3 unidades continuam no nível 1', () => {

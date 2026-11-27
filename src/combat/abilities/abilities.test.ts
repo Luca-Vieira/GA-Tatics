@@ -480,20 +480,20 @@ describe('Moço — Estagiário (ataque aleatório)', () => {
 
     expect(share((roll) => roll.missed)).toBeGreaterThan(0.03);
     expect(share((roll) => roll.missed)).toBeLessThan(0.07);
-    expect(share((roll) => !roll.missed && roll.rawDamage <= 40)).toBeGreaterThan(0.32);
-    expect(share((roll) => !roll.missed && roll.rawDamage <= 40)).toBeLessThan(0.38);
-    expect(share((roll) => roll.rawDamage >= 80)).toBeGreaterThan(0.57);
-    expect(share((roll) => roll.rawDamage >= 80)).toBeLessThan(0.63);
+    expect(share((roll) => !roll.missed && roll.rawDamage <= 50)).toBeGreaterThan(0.32);
+    expect(share((roll) => !roll.missed && roll.rawDamage <= 50)).toBeLessThan(0.38);
+    expect(share((roll) => roll.rawDamage >= 90)).toBeGreaterThan(0.57);
+    expect(share((roll) => roll.rawDamage >= 90)).toBeLessThan(0.63);
   });
 
-  it('o dano sempre cai nas faixas medíocre (20–40) ou excelente (80–100)', () => {
+  it('o dano sempre cai nas faixas medíocre (30–50) ou excelente (90–100)', () => {
     const random = new SeededRandom(7);
     const unit = moco();
     for (let attempt = 0; attempt < 5000; attempt++) {
       const roll = rollRandomAttack(random, unit)!;
       if (roll.missed) continue;
-      const isMediocre = roll.rawDamage >= 20 && roll.rawDamage <= 40;
-      const isExcellent = roll.rawDamage >= 80 && roll.rawDamage <= 100;
+      const isMediocre = roll.rawDamage >= 30 && roll.rawDamage <= 50;
+      const isExcellent = roll.rawDamage >= 90 && roll.rawDamage <= 100;
       expect(isMediocre || isExcellent).toBe(true);
     }
   });
@@ -503,7 +503,7 @@ describe('Moço — Estagiário (ataque aleatório)', () => {
     const threeStars = moco(3);
     for (let attempt = 0; attempt < 500; attempt++) {
       const roll = rollRandomAttack(random, threeStars)!;
-      if (!roll.missed) expect(roll.rawDamage).toBeGreaterThanOrEqual(20 * 6);
+      if (!roll.missed) expect(roll.rawDamage).toBeGreaterThanOrEqual(30 * 6);
     }
   });
 
@@ -525,8 +525,8 @@ describe('Moço — Estagiário (ataque aleatório)', () => {
     expect(attacks.length).toBeGreaterThan(8);
     expect(attacks.some((attack) => attack.missed)).toBe(true);
     for (const attack of attacks.filter((candidate) => !candidate.missed)) {
-      const isMediocre = attack.damage >= 20 - 1e-9 && attack.damage <= 40 + 1e-9;
-      const isExcellent = attack.damage >= 80 - 1e-9 && attack.damage <= 100 + 1e-9;
+      const isMediocre = attack.damage >= 30 - 1e-9 && attack.damage <= 50 + 1e-9;
+      const isExcellent = attack.damage >= 90 - 1e-9 && attack.damage <= 100 + 1e-9;
       expect(isMediocre || isExcellent).toBe(true);
     }
   });

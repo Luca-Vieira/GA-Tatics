@@ -32,7 +32,7 @@ Comandos:
 
 ### Entrega de 25/11/2026 (Seção 21 do `decisoes-de-design.md`)
 
-Os itens do documento de requisitos do dono foram implementados. Typecheck, lint, build e 633 testes limpos. **A VPS ainda roda a versão anterior** (protocolo novo: servidor e página precisam ser atualizados juntos).
+Os itens do documento de requisitos do dono foram implementados. Typecheck, lint, build e 633 testes limpos. **Publicado na VPS em 2026-11-26**, a partir da branch `versao-2` (a `main` guarda a versão anterior). Servidor e página precisam ser atualizados juntos.
 
 **Conferido no navegador** (servidor local): saguão e galeria (desktop e 667×375), sala de 2, compra e posicionamento, espectador, painel (abas "Sprites e ícones" e "Em andamento", encerrar sala) e "Sair" em rede; o subagente da tela conferiu partida contra bots em 1280×720, 844×390, 667×375 e 375×812.
 
@@ -44,7 +44,7 @@ Os itens do documento de requisitos do dono foram implementados. Typecheck, lint
 
 **Pendências conhecidas:**
 - A galeria e a prévia do painel ainda desenham o boneco provisório como cápsula; no jogo ele é de perfil. Os tamanhos do boneco estão copiados em `src/admin/spriteAdjust.ts` (origem: `src/rendering/sprites/unitTexture.ts`).
-- Equilíbrio não calibrado para 2, 3, 5 e 8 jogadores; Moço perto do piso com 5 unidades; Helder e João Lucas perto de 40% com 3.
+- Equilíbrio: a duração e os personagens não foram calibrados para mesas de 2, 3, 5 e 8 jogadores.
 - Um `content.json` já publicado mantém os valores gravados nele (por exemplo, loja e reserva de 3).
 - Espectador: um jogador pode assistir à própria sala em outra aba.
 - `config.tower.compensationOnLoss` é editado no JSON da aba Configuração.
@@ -53,7 +53,7 @@ Os itens do documento de requisitos do dono foram implementados. Typecheck, lint
 
 - Conferido no navegador: foice para cima e para baixo sob o personagem, área do Matheus, nitidez com 1 pixel por pixel (também ao redimensionar no meio da partida), e preparação, detalhes e combate em 667×375.
 - Falta conferir: celular de verdade; o resultado da rodada e a confirmação de saída no modo compacto; sprites enviados grandes, reduzidos muitas vezes na tela, podem serrilhar.
-- Equilíbrio: Wender e Moço estão perto dos limites da faixa. A vantagem do 1º lugar foi corrigida (Seção 23).
+- Equilíbrio (Seções 23 a 25): vantagem do 1º lugar, torre, João Lucas e Moço ajustados. Em aberto: uma unidade de 2 estrelas decide quase sempre o combate (e atualizar a loja a 1 moeda deve antecipá-la); duas sinergias de nível 1 rendem mais que uma de nível 2; Wilian ficou como o mais fraco em combate de 1 estrela (perto de 44%).
 
 ## 2. Regras de trabalho (do `~/.claude/CLAUDE.md` do dono do projeto)
 
