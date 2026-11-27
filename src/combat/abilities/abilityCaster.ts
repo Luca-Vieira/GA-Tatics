@@ -1,6 +1,7 @@
 import type { AbilityDefinition } from '@data/schemas/ability';
 import { hexDistance, type Hex } from '@shared/utils/hex';
 import type { CombatWorld } from '../engine/world';
+import { targetableEnemiesOf } from '../targeting/targeting';
 import { countsForResult, turnTowards, type CombatUnit } from '../units/unit';
 import type { CastContext } from './castContext';
 import { applyAbilityEffects } from './effects';
@@ -116,7 +117,7 @@ function isWithinCastRange(caster: CombatUnit, target: CombatUnit, ability: Abil
 }
 
 function enemiesInCastRange(world: CombatWorld, unit: CombatUnit, ability: AbilityDefinition): CombatUnit[] {
-  return world.units.filter((enemy) => enemy.alive && enemy.side !== unit.side && isWithinCastRange(unit, enemy, ability));
+  return targetableEnemiesOf(unit, world.units).filter((enemy) => isWithinCastRange(unit, enemy, ability));
 }
 
 function findNearestEnemyInRange(world: CombatWorld, unit: CombatUnit, ability: AbilityDefinition): CombatUnit | null {

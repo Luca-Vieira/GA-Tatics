@@ -28,7 +28,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
     overtimeLivesLost: 2,
   },
   tower: {
-    cost: 5,
+    cost: 3,
     health: 4,
     incomePerRound: 2,
     // Por vaga: com 5 vagas, 6% mantém a chance de ver uma torre na loja perto da de antes (3 vagas a 10%).

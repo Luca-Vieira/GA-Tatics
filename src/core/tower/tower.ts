@@ -1,6 +1,6 @@
 import { characterSchema, type CharacterDefinition } from '@data/schemas/character';
 import type { TowerConfig } from '@data/schemas/gameConfig';
-import { boardUnitsOf, type PlayerState } from '../players/playerState';
+import { boardUnitsOf, type OwnedUnit, type PlayerState } from '../players/playerState';
 
 /** Id usado pela torre no lugar do id de um personagem (oferta da loja, unidade do jogador, unidade do combate). */
 export const TOWER_ID = 'torre';
@@ -11,6 +11,11 @@ export function isTowerId(characterId: string): boolean {
 
 export function countOwnedTowers(player: PlayerState): number {
   return player.units.filter((unit) => isTowerId(unit.characterId)).length;
+}
+
+/** Unidades do tabuleiro que contam no limite da rodada: todas, menos as torres (que não ocupam vaga de lutador). */
+export function boardFightersOf(player: PlayerState): OwnedUnit[] {
+  return boardUnitsOf(player).filter((unit) => !isTowerId(unit.characterId));
 }
 
 /** Moedas extras do início da rodada: cada torre que está no tabuleiro (e não foi destruída) rende `incomePerRound`. */
@@ -35,7 +40,7 @@ export function buildTowerCharacter(config: TowerConfig): CharacterDefinition {
     ability: {
       id: 'tower_income',
       name: 'Renda',
-      description: `Rende +${config.incomePerRound} moedas por rodada enquanto estiver no tabuleiro e de pé. Os inimigos podem atacá-la: proteja-a. Se for destruída, some para sempre, mas você recebe +${config.compensationOnLoss} moedas (uma única vez) no início da rodada seguinte.`,
+      description: `Não ocupa vaga no limite de unidades. Rende +${config.incomePerRound} moedas por rodada enquanto estiver no tabuleiro e de pé. Os inimigos só miram nela quando não sobra ninguém do seu time (golpes em área a acertam antes disso): proteja o time. Se for destruída, some para sempre, mas você recebe +${config.compensationOnLoss} moedas (uma única vez) no início da rodada seguinte.`,
       activation: { type: 'passive' },
       cooldownSeconds: 0,
       // A torre não age em combate; este efeito existe só porque toda habilidade precisa de ao menos um.

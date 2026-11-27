@@ -25,6 +25,47 @@ function playUntilFinished(game: Game, maximumRounds = 80): number {
   return rounds;
 }
 
+describe('primeiro descanso', () => {
+  const players = ['p1', 'p2', 'p3'].map((id) => ({ id, name: id, isBot: true }));
+  const firstRestingOf = (seed: string) => makeGame({ seed, players }).pairings.resting!;
+
+  it('é sorteado por partida: nenhum lugar descansa primeiro mais vezes que os outros', () => {
+    const SEEDS = 600;
+    const restingCounts = new Map(players.map((player) => [player.id, 0]));
+    for (let index = 0; index < SEEDS; index++) {
+      const resting = firstRestingOf(`sorteio-${index}`);
+      restingCounts.set(resting, restingCounts.get(resting)! + 1);
+    }
+    for (const [playerId, count] of restingCounts) {
+      expect(count / SEEDS, playerId).toBeGreaterThan(0.28);
+      expect(count / SEEDS, playerId).toBeLessThan(0.39);
+    }
+  });
+
+  it('a mesma semente sempre dá o mesmo descanso', () => {
+    expect(firstRestingOf('mesma-semente')).toBe(firstRestingOf('mesma-semente'));
+  });
+});
+
+describe('lado de cada duelo', () => {
+  const players = ['p1', 'p2'].map((id) => ({ id, name: id, isBot: true }));
+  const topOfFirstDuel = (seed: string) => makeGame({ seed, players }).resolveCombats()[0]!.topId;
+
+  it('é sorteado: o primeiro lugar não luta sempre do mesmo lado', () => {
+    const SEEDS = 200;
+    let firstSeatOnTop = 0;
+    for (let index = 0; index < SEEDS; index++) {
+      firstSeatOnTop += topOfFirstDuel(`lado-${index}`) === 'p1' ? 1 : 0;
+    }
+    expect(firstSeatOnTop / SEEDS).toBeGreaterThan(0.4);
+    expect(firstSeatOnTop / SEEDS).toBeLessThan(0.6);
+  });
+
+  it('a mesma semente sempre dá o mesmo lado', () => {
+    expect(topOfFirstDuel('mesma-semente')).toBe(topOfFirstDuel('mesma-semente'));
+  });
+});
+
 describe('início da partida', () => {
   it('todos começam na rodada 1 com 3 vidas, 5 moedas, tabuleiro e reserva vazios e uma loja de 5 ofertas', () => {
     const game = makeGame();

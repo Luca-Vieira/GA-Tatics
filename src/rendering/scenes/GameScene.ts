@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { HumanDuel, MatchSession, MatchView, RoundResultSummary, SessionListener } from '@core/game/MatchSession';
 import { isAlive, type OwnedUnit, type PlayerState, type UnitLocation } from '@core/players/playerState';
 import { sellValueOf } from '@core/shop/shop';
-import { isTowerId } from '@core/tower/tower';
+import { boardFightersOf, isTowerId } from '@core/tower/tower';
 import { attackOf } from '@data/schemas/attack';
 import { createBoardProjection, type BoardProjection } from '@shared/utils/boardProjection';
 import type { Point } from '@shared/utils/hex';
@@ -726,7 +726,7 @@ export class GameScene extends Phaser.Scene {
       canBeReady: isAlive(human),
       isReady: human.ready,
       speed: this.combatSpeed,
-      boardCount: human.units.filter((unit) => unit.location.kind === 'board').length,
+      boardCount: boardFightersOf(human).length,
       unitLimit: this.match.unitLimit,
       watchedName: human.name,
     };

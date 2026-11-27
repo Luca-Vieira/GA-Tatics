@@ -53,7 +53,7 @@ Os itens do documento de requisitos do dono foram implementados. Typecheck, lint
 
 - Conferido no navegador: foice para cima e para baixo sob o personagem, área do Matheus, nitidez com 1 pixel por pixel (também ao redimensionar no meio da partida), e preparação, detalhes e combate em 667×375.
 - Falta conferir: celular de verdade; o resultado da rodada e a confirmação de saída no modo compacto; sprites enviados grandes, reduzidos muitas vezes na tela, podem serrilhar.
-- Equilíbrio: Wender e Moço estão perto dos limites da faixa; o 1º lugar da mesa de bots vence de 29% a 33%.
+- Equilíbrio: Wender e Moço estão perto dos limites da faixa. A vantagem do 1º lugar foi corrigida (Seção 23).
 
 ## 2. Regras de trabalho (do `~/.claude/CLAUDE.md` do dono do projeto)
 

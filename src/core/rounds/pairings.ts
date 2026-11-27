@@ -16,11 +16,12 @@ export interface RoundPairings {
 /**
  * Define os confrontos da rodada (GDD 2.2). Com 4 jogadores a ordem é AB/CD, AC/BD, AD/BC e depois repete,
  * porque sempre se escolhe o pareamento que menos repetiu confrontos (e, no empate, o mais antigo).
- * Com número ímpar, descansa quem menos descansou até aqui.
+ * Com número ímpar, descansa quem menos descansou até aqui; no empate vale `restDrawOrder`, a ordem sorteada da
+ * partida (descansar poupa vidas, então um desempate fixo favoreceria sempre o mesmo lugar).
  */
-export function createPairings(aliveIdsInOrder: readonly string[], history: readonly RoundRecord[]): RoundPairings {
+export function createPairings(aliveIdsInOrder: readonly string[], history: readonly RoundRecord[], restDrawOrder: readonly string[] = []): RoundPairings {
   const orderedIds = [...aliveIdsInOrder].sort();
-  const resting = orderedIds.length % 2 === 1 ? chooseRestingPlayer(orderedIds, history) : null;
+  const resting = orderedIds.length % 2 === 1 ? chooseRestingPlayer(orderedIds, history, restDrawOrder) : null;
   const fighters = orderedIds.filter((id) => id !== resting);
   if (fighters.length === 0) {
     return { pairs: [], resting };
@@ -39,10 +40,17 @@ export function createPairings(aliveIdsInOrder: readonly string[], history: read
   return { pairs: bestPairs, resting };
 }
 
-function chooseRestingPlayer(orderedIds: readonly string[], history: readonly RoundRecord[]): string {
+function chooseRestingPlayer(orderedIds: readonly string[], history: readonly RoundRecord[], restDrawOrder: readonly string[]): string {
   const restCount = (id: string) => history.filter((record) => record.resting === id).length;
   const lastRestRound = (id: string) => Math.max(0, ...history.filter((record) => record.resting === id).map((record) => record.round));
-  const ranked = [...orderedIds].sort((first, second) => restCount(first) - restCount(second) || lastRestRound(first) - lastRestRound(second) || (first < second ? -1 : 1));
+  // Quem não está na ordem sorteada vai para o fim; entre esses, vale o id.
+  const drawPosition = (id: string) => {
+    const position = restDrawOrder.indexOf(id);
+    return position < 0 ? restDrawOrder.length : position;
+  };
+  const ranked = [...orderedIds].sort(
+    (first, second) => restCount(first) - restCount(second) || lastRestRound(first) - lastRestRound(second) || drawPosition(first) - drawPosition(second) || (first < second ? -1 : 1),
+  );
   return ranked[0] as string;
 }
 

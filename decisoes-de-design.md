@@ -321,3 +321,24 @@ Onde esta seção contraria a 21, vale esta.
 - **Nitidez (causa):** a resolução era calculada pela tela inteira; numa janela de 1536×730 o canvas tinha 1920×1080 e o navegador reduzia 1,48 vez. Agora o canvas tem os mesmos pixels que o jogo ocupa na janela (escala de 0,5 a 3), acompanha o redimensionamento e redesenha os textos. A textura do boneco passou de 3× para 2×.
 - **Modo compacto** (menos de 0,72 pixel CSS por unidade de tela: celulares): letras maiores; as cartas mostram só nome, sinergia e preço; sinergias mostram nome e contagem; o placar mostra só o nome da fase; sob o boneco ficam só as estrelas; o painel de detalhes esconde bônus de sinergia, comportamento e recarga e resume a área ao nome do formato. O modo é escolhido quando a partida começa.
 
+## 23. Vantagem do primeiro lugar
+
+- **Causas:** (1) no empate de quem descansa valia a ordem dos ids, então o 1º lugar descansava primeiro e poupava vidas; (2) em cada duelo o primeiro id era sempre o lado A, que leva uma pequena vantagem no combate (de 51% a 53%). Em rede, o 1º lugar é o do anfitrião.
+- **Correção:** a ordem do desempate do descanso é sorteada uma vez por partida, e o lado de cada duelo é sorteado a cada rodada, os dois a partir da semente (a partida continua reproduzível). O pareamento não mudou. Na tela nada muda: quem vê continua à esquerda, com a mesma cor.
+- **Partida local contra bots:** o jogador continua sempre no lado B quando tem duelo, como antes.
+- **Medido** (36 mil partidas de bots em duas séries de sementes, de 2 a 8 jogadores): com 3 jogadores o 1º lugar foi de 41% para 32,6% na média das séries (ideal 33,3%); com 4, de 30,5% para 24,8% (ideal 25%). Na média das duas séries, todos os lugares ficaram dentro da margem de acaso de 95%.
+- **Em aberto:** a pequena vantagem do lado A no combate continua; o sorteio só a distribui por igual. A causa não foi investigada.
+
+## 24. Torre
+
+Onde esta seção contraria as Seções 15 e 21, vale esta.
+
+- **Problema:** quem comprava torre vencia 17% das partidas de bots (neutro: 50%). Ela ocupava a vaga de um lutador (e um lutador a mais vence cerca de 97% dos combates), custava quase a renda de uma rodada e era destruída antes de se pagar.
+- **Vaga:** a torre **não conta** no limite de unidades do tabuleiro. A troca de lugar entre torre e lutador também confere o limite. Continua o máximo de 2 por jogador.
+- **Alvo:** os inimigos **só miram na torre quando não sobra mais ninguém** do time em campo (golpes e habilidades em área ainda a acertam antes). Sem isso, com a vaga livre, ela virava um escudo: na frente, o time vencia 79% dos combates em vez de 52%. Com a regra, vence de 52% a 55%.
+- **Preço:** 5 → **3**. A renda (+2 por rodada) e a compensação (+2 ao ser destruída) não mudaram. Entre preço e renda, o preço foi o que fez diferença.
+- **Bots:** levam a torre além do time completo e a deixam no fundo (linhas 0 e 1).
+- **Medido** (2000 partidas de 4 bots, metade comprando a torre): comprando sempre que aparece, de 17% para cerca de 36%; comprando a partir da rodada 4, de 34% para cerca de 46%. Comprar cedo continua sendo um risco, e comprar no meio da partida fica perto de empatar com não comprar. Os bots não jogam em torno da renda extra; pessoas podem tirar mais dela.
+- **Loja:** a carta da torre não mostra mais "Fusão!".
+- **Atenção:** um `content.json` já publicado mantém o preço antigo gravado nele.
+

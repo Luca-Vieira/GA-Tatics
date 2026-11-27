@@ -6,7 +6,7 @@ import type { SeededRandom } from '@shared/utils/random';
 import { fuseAll, wouldCompleteFusion, type FusionResult } from '../fusion/fusion';
 import { unitLimitForRound } from '../rounds/rounds';
 import { rollShopOffer, sellValueOf } from '../shop/shop';
-import { TOWER_ID, countOwnedTowers, isTowerId } from '../tower/tower';
+import { TOWER_ID, boardFightersOf, countOwnedTowers, isTowerId } from '../tower/tower';
 import { benchUnitsOf, boardUnitsOf, isAlive, type OwnedUnit, type PlayerState, type UnitLocation } from './playerState';
 
 /** Tudo de que as ações de um jogador precisam saber do jogo em andamento. */
@@ -159,8 +159,7 @@ export function moveUnit(player: PlayerState, context: ActionContext, unitId: st
     return failure('invalid_destination');
   }
   const occupant = player.units.find((candidate) => candidate.id !== unit.id && locationsAreEqual(candidate.location, destination));
-  const isEnteringBoardWithoutSwap = destination.kind === 'board' && unit.location.kind === 'bench' && !occupant;
-  if (isEnteringBoardWithoutSwap && boardUnitsOf(player).length >= unitLimitForRound(context.config.rounds, context.round)) {
+  if (exceedsUnitLimit(player, context, unit, destination, occupant)) {
     return failure('board_full');
   }
 
@@ -169,6 +168,19 @@ export function moveUnit(player: PlayerState, context: ActionContext, unitId: st
   }
   unit.location = destination;
   return success();
+}
+
+/**
+ * Verdadeiro se o movimento (com a troca, quando o destino está ocupado) puser no tabuleiro mais lutadores do que a
+ * rodada permite. Torres não contam, então trocar uma torre por um lutador da reserva também é conferido.
+ */
+function exceedsUnitLimit(player: PlayerState, context: ActionContext, unit: OwnedUnit, destination: UnitLocation, occupant: OwnedUnit | undefined): boolean {
+  const boardPresence = (location: UnitLocation) => (location.kind === 'board' ? 1 : 0);
+  const fighterWeight = (candidate: OwnedUnit) => (isTowerId(candidate.characterId) ? 0 : 1);
+  const unitChange = fighterWeight(unit) * (boardPresence(destination) - boardPresence(unit.location));
+  const occupantChange = occupant ? fighterWeight(occupant) * (boardPresence(unit.location) - boardPresence(destination)) : 0;
+  const addedFighters = unitChange + occupantChange;
+  return addedFighters > 0 && boardFightersOf(player).length + addedFighters > unitLimitForRound(context.config.rounds, context.round);
 }
 
 export function locationsAreEqual(first: UnitLocation, second: UnitLocation): boolean {
@@ -195,7 +207,7 @@ function findLocationForNewUnit(player: PlayerState, context: ActionContext, cha
   if (freeBenchSlot !== null) {
     return { kind: 'bench', slot: freeBenchSlot };
   }
-  const hasRoomOnBoard = boardUnitsOf(player).length < unitLimitForRound(context.config.rounds, context.round);
+  const hasRoomOnBoard = isTowerId(characterId) || boardFightersOf(player).length < unitLimitForRound(context.config.rounds, context.round);
   const freeCell = hasRoomOnBoard ? firstFreeBoardCell(player) : null;
   if (freeCell) {
     return { kind: 'board', cell: freeCell };

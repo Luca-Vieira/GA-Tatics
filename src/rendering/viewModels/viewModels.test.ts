@@ -24,6 +24,14 @@ describe('modelos de interface', () => {
     expect(buildShopModel(game, 'p1').cards[0]?.advancesFusion).toBe(true);
   });
 
+  it('a carta da torre não anuncia fusão, mesmo para quem já tem uma torre', () => {
+    const game = makeGame();
+    const player = game.getPlayer('p1');
+    giveUnit(player, 'torre', { kind: 'bench', slot: 0 });
+    player.shop = [{ characterId: 'torre', cost: 3 }];
+    expect(buildShopModel(game, 'p1').cards[0]?.advancesFusion).toBe(false);
+  });
+
   it('o painel de sinergias conta só o tabuleiro e descreve o bônus ativo', () => {
     const game = makeGame();
     const player = game.getPlayer('p1');

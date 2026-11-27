@@ -94,6 +94,8 @@ export class Game {
   private readonly bottomPlayerId: string | undefined;
   private readonly combatRules: CombatRules | undefined;
   private readonly playerList: PlayerState[];
+  /** Ordem sorteada uma vez por partida: decide quem descansa primeiro quando há empate. */
+  private readonly restDrawOrder: readonly string[];
   private readonly shopRandomByPlayer = new Map<string, SeededRandom>();
   private readonly towerRandomByPlayer = new Map<string, SeededRandom>();
   private readonly history: RoundRecord[] = [];
@@ -120,6 +122,7 @@ export class Game {
     this.bottomPlayerId = options.bottomPlayerId;
     this.combatRules = options.combatRules;
     this.playerList = options.players.map((player) => createPlayerState(player, this.config.rounds.startingLives, this.config.economy.startingCoins));
+    this.restDrawOrder = new SeededRandom(`${this.seed}:rest-order`).shuffled(this.playerList.map((player) => player.id));
     this.startRound();
   }
 
@@ -313,6 +316,7 @@ export class Game {
     this.currentPairings = createPairings(
       this.alivePlayers.map((player) => player.id),
       this.history,
+      this.restDrawOrder,
     );
     for (const player of this.alivePlayers) {
       player.coins = coinsAtRoundStart(this.config.economy, player.coins, this.currentRound) + towerIncomeOf(player, this.config.tower) + this.collectTowerCompensation(player.id);
@@ -333,9 +337,17 @@ export class Game {
     return { charactersById: this.charactersById, synergies: this.synergies, synergyMapping: this.synergyMapping, rules: this.combatRules };
   }
 
-  /** Quem é o jogador de baixo na tela: o escolhido, se estiver no duelo; senão, o segundo da dupla. */
+  /** Quem luta como lado A (`top`) e como lado B (`bottom`): o jogador escolhido, se estiver no duelo, é sempre o B. */
   private orderForDisplay(first: string, second: string): [string, string] {
-    return first === this.bottomPlayerId ? [second, first] : [first, second];
+    if (first === this.bottomPlayerId) {
+      return [second, first];
+    }
+    if (second === this.bottomPlayerId) {
+      return [first, second];
+    }
+    // Nos demais duelos o lado é sorteado: o lado A leva uma pequena vantagem, e o mesmo lugar ficaria sempre nele.
+    const isSwapped = new SeededRandom(`${this.seed}:sides:${this.currentRound}:${first}:${second}`).chance(0.5);
+    return isSwapped ? [second, first] : [first, second];
   }
 
   private applyDuelOutcome(duel: Duel): DuelOutcome {

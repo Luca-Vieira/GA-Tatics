@@ -1,12 +1,14 @@
 import { hexesAreEqual, offsetToAxial, type Hex } from '@shared/utils/hex';
 import type { Game } from '../game/Game';
-import { isTowerId } from '../tower/tower';
+import { boardFightersOf, isTowerId } from '../tower/tower';
 import { benchUnitsOf, boardUnitsOf, type OwnedUnit, type PlayerState, type UnitLocation } from './playerState';
 
 /** Quem tem alcance até aqui fica na frente; os demais ficam atrás. */
 const MELEE_MAXIMUM_RANGE = 2;
 const FRONT_ROWS = [5, 4];
 const BACK_ROWS = [3, 2];
+/** A torre não luta: fica no fundo, longe dos golpes em área e sem atrapalhar o caminho do time. */
+const TOWER_ROWS = [0, 1];
 /** Colunas do centro para as bordas, para a formação ficar compacta. */
 const COLUMNS_FROM_CENTER = [2, 1, 3, 0, 4];
 const MAXIMUM_ORGANIZATION_PASSES = 12;
@@ -57,7 +59,7 @@ function chooseOfferToBuy(game: Game, bot: PlayerState): number | null {
 
 function canFit(game: Game, bot: PlayerState, characterId: string): boolean {
   const hasBenchSpace = benchUnitsOf(bot).length < game.config.rounds.benchSize;
-  const hasBoardSpace = boardUnitsOf(bot).length < game.unitLimit;
+  const hasBoardSpace = boardFightersOf(bot).length < game.unitLimit;
   const copies = bot.units.filter((unit) => unit.characterId === characterId && unit.starLevel === 1).length;
   return hasBenchSpace || hasBoardSpace || copies === 2;
 }
@@ -91,10 +93,12 @@ function swapWithUnitThatShouldLeaveBoard(game: Game, bot: PlayerState, incoming
   }
 }
 
-/** Os mais fortes (mais estrelas, depois mais caros) até o limite da rodada. */
+/** Os lutadores mais fortes (mais estrelas, depois mais caros) até o limite da rodada, mais as torres, que não ocupam vaga. */
 function chooseUnitsToDeploy(game: Game, bot: PlayerState): OwnedUnit[] {
   const strength = (unit: OwnedUnit) => unit.starLevel * 100 + rarityRank(game.getCharacter(unit.characterId).rarity);
-  return [...bot.units].sort((first, second) => strength(second) - strength(first) || first.acquiredOrder - second.acquiredOrder).slice(0, game.unitLimit);
+  const fighters = bot.units.filter((unit) => !isTowerId(unit.characterId));
+  const strongestFighters = [...fighters].sort((first, second) => strength(second) - strength(first) || first.acquiredOrder - second.acquiredOrder).slice(0, game.unitLimit);
+  return [...strongestFighters, ...bot.units.filter((unit) => isTowerId(unit.characterId))];
 }
 
 function rarityRank(rarity: 'common' | 'rare' | 'special'): number {
@@ -104,13 +108,14 @@ function rarityRank(rarity: 'common' | 'rare' | 'special'): number {
 function assignCells(game: Game, units: readonly OwnedUnit[]): Map<string, Hex> {
   const frontCells = orderedCells(FRONT_ROWS);
   const backCells = orderedCells(BACK_ROWS);
+  const towerCells = orderedCells(TOWER_ROWS);
   const assignments = new Map<string, Hex>();
   const isMelee = (unit: OwnedUnit) => game.getCharacter(unit.characterId).stats.range <= MELEE_MAXIMUM_RANGE;
 
   for (const unit of units) {
     const preferred = isMelee(unit) ? frontCells : backCells;
     const fallback = isMelee(unit) ? backCells : frontCells;
-    const cell = preferred.shift() ?? fallback.shift();
+    const cell = isTowerId(unit.characterId) ? towerCells.shift() : (preferred.shift() ?? fallback.shift());
     if (cell) {
       assignments.set(unit.id, cell);
     }

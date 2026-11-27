@@ -68,7 +68,8 @@ export function buildShopModel(game: MatchView, playerId: string): ShopViewModel
       synergyColor: colorNumber(synergy?.color ?? NEUTRAL_COLOR),
       abilityName: character.ability.name,
       canAfford: player.coins >= offer.cost,
-      advancesFusion: player.units.some((unit) => unit.characterId === character.id && unit.starLevel === 1),
+      // Torres não se fundem: ter uma não faz a carta anunciar fusão.
+      advancesFusion: !isTowerId(character.id) && player.units.some((unit) => unit.characterId === character.id && unit.starLevel === 1),
       isFrozen: offer.frozen === true,
     };
   });

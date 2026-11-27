@@ -3,9 +3,10 @@ import { CombatSimulation } from '@combat/engine/CombatSimulation';
 import { DEFAULT_GAME_CONFIG } from '@data/defaults/gameConfig';
 import { SeededRandom } from '@shared/utils/random';
 import { buildSideUnits } from '../game/combatSetup';
-import { buyFromShop, refillShop, refreshShop } from '../players/playerActions';
+import { playBotPreparation } from '../players/botStrategy';
+import { buyFromShop, moveUnit, refillShop, refreshShop } from '../players/playerActions';
 import { cellAt, giveUnit, makeContext, makeGame, makePlayer } from '../testSupport';
-import { buildTowerCharacter, countOwnedTowers, TOWER_ID, towerIncomeOf } from './tower';
+import { boardFightersOf, buildTowerCharacter, countOwnedTowers, TOWER_ID, towerIncomeOf } from './tower';
 
 const towerConfig = DEFAULT_GAME_CONFIG.tower;
 
@@ -70,6 +71,58 @@ describe('torre na loja', () => {
   });
 });
 
+describe('torre e o limite de unidades', () => {
+  // Rodada 1: o limite é de 3 lutadores.
+  function playerWithFullTeam() {
+    const player = makePlayer();
+    [0, 1, 2].forEach((column) => giveUnit(player, 'bixo', { kind: 'board', cell: cellAt(column, 5) }));
+    return player;
+  }
+
+  it('a torre entra no tabuleiro mesmo com o time completo', () => {
+    const player = playerWithFullTeam();
+    const tower = giveUnit(player, TOWER_ID, { kind: 'bench', slot: 0 });
+    expect(moveUnit(player, makeContext(1), tower.id, { kind: 'board', cell: cellAt(0, 0) })).toMatchObject({ ok: true });
+    expect(boardFightersOf(player)).toHaveLength(3);
+  });
+
+  it('com a torre em campo, ainda cabem todos os lutadores do limite', () => {
+    const player = makePlayer();
+    giveUnit(player, TOWER_ID, { kind: 'board', cell: cellAt(0, 0) });
+    const fighters = [0, 1, 2].map((slot) => giveUnit(player, 'bixo', { kind: 'bench', slot }));
+    const results = fighters.map((fighter, column) => moveUnit(player, makeContext(1), fighter.id, { kind: 'board', cell: cellAt(column, 5) }));
+    expect(results.every((result) => result.ok)).toBe(true);
+  });
+
+  it('trocar a torre por um lutador da reserva não fura o limite, em nenhum dos dois sentidos', () => {
+    const player = playerWithFullTeam();
+    const tower = giveUnit(player, TOWER_ID, { kind: 'board', cell: cellAt(0, 0) });
+    const reserve = giveUnit(player, 'leo', { kind: 'bench', slot: 0 });
+    const full = { ok: false, reason: 'board_full' };
+    expect(moveUnit(player, makeContext(1), reserve.id, tower.location)).toEqual(full);
+    expect(moveUnit(player, makeContext(1), tower.id, reserve.location)).toEqual(full);
+    expect(boardFightersOf(player)).toHaveLength(3);
+  });
+
+  it('um quarto lutador continua barrado', () => {
+    const player = playerWithFullTeam();
+    const reserve = giveUnit(player, 'leo', { kind: 'bench', slot: 0 });
+    expect(moveUnit(player, makeContext(1), reserve.id, { kind: 'board', cell: cellAt(3, 5) })).toEqual({ ok: false, reason: 'board_full' });
+  });
+
+  it('o bot que tem uma torre leva o time completo e a torre', () => {
+    const game = makeGame();
+    const bot = game.getPlayer('p1');
+    [0, 1, 2].forEach((slot) => giveUnit(bot, 'bixo', { kind: 'bench', slot }));
+    giveUnit(bot, 'leo', { kind: 'bench', slot: 3 });
+    giveUnit(bot, TOWER_ID, { kind: 'bench', slot: 4 });
+    bot.coins = 0;
+    playBotPreparation(game, 'p1');
+    expect(boardFightersOf(bot)).toHaveLength(game.unitLimit);
+    expect(bot.units.find((unit) => unit.characterId === TOWER_ID)?.location.kind).toBe('board');
+  });
+});
+
 describe('torre na economia', () => {
   it('só as torres do tabuleiro rendem moedas', () => {
     const player = makePlayer();
@@ -118,14 +171,31 @@ describe('torre no combate', () => {
     expect(events.some((event) => (event.type === 'move' || event.type === 'attack') && (event.type === 'move' ? event.unitId : event.attackerId) === specs[0]!.id)).toBe(false);
   });
 
+  it('os inimigos só miram na torre quando não sobra ninguém do time, mesmo que ela esteja mais perto', () => {
+    const towerStats = { health: 4, damage: 1, attackSpeed: 1, range: 1, mobility: 1 };
+    const fighterStats = { health: 2, damage: 1, attackSpeed: 1, range: 1, mobility: 1 };
+    const joao = game.getCharacter('joao_lucas');
+    const units = [
+      { id: 'A-torre', name: 'Torre', side: 'A' as const, cell: cellAt(2, 5), stats: towerStats, isStructure: true },
+      { id: 'A-longe', name: 'Reserva', side: 'A' as const, cell: cellAt(2, 1), stats: fighterStats },
+      { id: 'B-joao', name: 'João', side: 'B' as const, cell: cellAt(2, 7), stats: joao.stats, behavior: joao.behavior },
+    ];
+    const simulation = new CombatSimulation({ seed: 'torre-por-ultimo', units });
+    simulation.run();
+    const events = simulation.drainEvents();
+    const deathOfFighter = events.findIndex((event) => event.type === 'death' && event.unitId === 'A-longe');
+    const firstHitOnTower = events.findIndex((event) => event.type === 'attack' && event.targetId === 'A-torre');
+    expect(deathOfFighter).toBeGreaterThanOrEqual(0);
+    expect(firstHitOnTower).toBeGreaterThan(deathOfFighter);
+  });
+
   it('uma torre que apanha até morrer aparece em destroyedStructureIds e não entre os sobreviventes', () => {
     const stats = { health: 1, damage: 1, attackSpeed: 1, range: 1, mobility: 1 };
-    const bixo = game.getCharacter('bixo');
     const joao = game.getCharacter('joao_lucas');
     const units = [
       { id: 'A-torre', name: 'Torre', side: 'A' as const, cell: cellAt(2, 3), stats, isStructure: true },
-      { id: 'A-bixo', name: 'Bixo', side: 'A' as const, cell: cellAt(4, 0), stats: bixo.stats, behavior: bixo.behavior },
-      { id: 'B-joao', name: 'João', side: 'B' as const, cell: cellAt(2, 4), stats: joao.stats, behavior: joao.behavior },
+      { id: 'A-fraco', name: 'Fraco', side: 'A' as const, cell: cellAt(2, 5), stats },
+      { id: 'B-joao', name: 'João', side: 'B' as const, cell: cellAt(2, 7), stats: joao.stats, behavior: joao.behavior },
     ];
     const result = new CombatSimulation({ seed: 'torre-morre', units }).run();
     expect(result.destroyedStructureIds).toEqual(['A-torre']);

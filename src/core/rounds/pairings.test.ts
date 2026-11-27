@@ -31,6 +31,14 @@ describe('pareamento', () => {
     expect(restCounts).toEqual([2, 2, 2]);
   });
 
+  it('no empate, os descansos seguem a ordem sorteada da partida, e não a ordem dos lugares', () => {
+    const history: RoundRecord[] = [];
+    for (let round = 1; round <= 6; round++) {
+      history.push({ round, ...createPairings(['A', 'B', 'C'], history, ['C', 'A', 'B']) });
+    }
+    expect(history.map((record) => record.resting)).toEqual(['C', 'A', 'B', 'C', 'A', 'B']);
+  });
+
   it('com 2 jogadores todos lutam, sem descanso', () => {
     const { pairs, resting } = createPairings(['A', 'B'], []);
     expect(pairs).toEqual([['A', 'B']]);
