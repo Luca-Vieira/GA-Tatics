@@ -16,6 +16,7 @@ import { RateLimiter } from './rateLimiter';
 import { realScheduler, type Scheduler } from './scheduler';
 
 export const DEFAULT_PORT = 8787;
+export const PUBLIC_CONTENT_PATH = '/api/content';
 /** Por padrão só a própria máquina conecta; abrir para a rede é uma escolha explícita (`--lan`). */
 export const LOOPBACK_HOST = '127.0.0.1';
 
@@ -141,7 +142,12 @@ export class GameServer {
     return new Promise((resolve, reject) => {
       // O mesmo endereço atende o jogo (WebSocket) e a API do painel de administração (HTTP).
       const httpServer = createServer((request, response) => {
-        if (this.adminApi.handle(request, response) || this.serveSprite(request.method, request.url, response) || serveHealthCheck(request.method, request.url, response)) {
+        if (
+          this.adminApi.handle(request, response) ||
+          this.servePublicContent(request.method, request.url, response) ||
+          this.serveSprite(request.method, request.url, response) ||
+          serveHealthCheck(request.method, request.url, response)
+        ) {
           return;
         }
         response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -275,6 +281,7 @@ export class GameServer {
             password: message.password,
             modifiers: message.modifiers,
             maximumPlayers: message.maximumPlayers,
+            mapId: message.mapId,
           }),
         );
         return;
@@ -328,6 +335,26 @@ export class GameServer {
 
   private sendError(connectionId: string, code: ServerErrorCode): void {
     this.send(connectionId, { type: 'error', code });
+  }
+
+  /**
+   * O conteúdo publicado (elenco, sinergias, configuração), o mesmo que todo cliente recebe ao conectar, e as notas de
+   * atualização. As telas de personagens e de novidades o consultam antes de conectar. Não traz nada sobre salas ou pessoas.
+   */
+  private servePublicContent(method: string | undefined, url: string | undefined, response: ServerResponse): boolean {
+    const path = (url ?? '').split('?')[0];
+    if (path !== PUBLIC_CONTENT_PATH || (method !== 'GET' && method !== 'HEAD')) {
+      return false;
+    }
+    const { version, content } = this.contentStore.snapshot;
+    response.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Access-Control-Allow-Origin': '*',
+    });
+    response.end(method === 'HEAD' ? undefined : JSON.stringify({ version, content, patchNotes: this.contentStore.patchNotes }));
+    return true;
   }
 
   /** Entrega pública (sem login) dos sprites: o nome tem o hash do conteúdo, então o navegador pode guardar para sempre. */

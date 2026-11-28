@@ -41,7 +41,8 @@ class HttpError extends Error {
  *   POST /api/admin/login    { username, password }          → { token, expiresInSeconds }
  *   POST /api/admin/logout                                    (com o token)
  *   GET  /api/admin/content                                   → { version, content }
- *   PUT  /api/admin/content  { baseVersion, content }        → { version }
+ *   PUT  /api/admin/content  { baseVersion, content, note? } → { version }   (note: { title, text })
+ *   POST /api/admin/notes/<id>/delete                         → { ok: true } (404 se a nota não existir)
  *   PUT  /api/admin/sprites/<id do sprite>       (corpo: o PNG, Content-Type image/png) → { path }
  *   GET  /api/admin/activities                                → { activities: [ salas em espera ou em jogo ] }
  *   POST /api/admin/activities/<código da sala>/end           → { ok: true } (404 se a sala não existir)
@@ -96,6 +97,13 @@ export class AdminApi {
       return;
     }
 
+    const noteMatch = /^\/api\/admin\/notes\/([0-9-]{1,40})\/delete$/.exec(path);
+    if (noteMatch && request.method === 'POST') {
+      this.requireSession(request, auth);
+      this.deleteNote(request, response, noteMatch[1] as string);
+      return;
+    }
+
     const route = `${request.method} ${path}`;
     switch (route) {
       case 'GET /api/admin/activities':
@@ -141,6 +149,14 @@ export class AdminApi {
     this.sendJson(request, response, 200, { ok: true });
   }
 
+  private deleteNote(request: IncomingMessage, response: ServerResponse, noteId: string): void {
+    if (!this.options.store.removePatchNote(noteId)) {
+      throw new HttpError(404, 'note_not_found');
+    }
+    this.options.log(`Nota de atualização ${noteId} apagada pelo administrador.`);
+    this.sendJson(request, response, 200, { ok: true });
+  }
+
   private async login(request: IncomingMessage, response: ServerResponse, auth: AdminAuth): Promise<void> {
     const body = await this.readJsonBody(request, LOGIN_BODY_LIMIT_BYTES);
     const username = typeof body.username === 'string' ? body.username : '';
@@ -163,7 +179,7 @@ export class AdminApi {
     if (body.baseVersion !== store.snapshot.version) {
       throw new HttpError(409, 'version_conflict', { currentVersion: store.snapshot.version });
     }
-    const result = store.update(body.content, (content) => this.missingSpriteIssues(content));
+    const result = store.update(body.content, (content) => this.missingSpriteIssues(content), body.note);
     if (!result.ok) {
       throw new HttpError(422, 'invalid_content', { issues: result.issues });
     }
@@ -186,10 +202,11 @@ export class AdminApi {
   }
 
   /** Todo sprite citado pelo conteúdo precisa existir no servidor, senão os jogadores veriam a imagem quebrada. */
-  private missingSpriteIssues(content: Pick<GameContent, 'characters' | 'auxiliarySprites'>): string[] {
+  private missingSpriteIssues(content: Pick<GameContent, 'characters' | 'auxiliarySprites' | 'maps'>): string[] {
     const citedSprites = [
       ...content.characters.map((character, position) => ({ at: `characters.${position}.sprite.path`, path: character.sprite?.path })),
       ...Object.entries(content.auxiliarySprites).map(([key, sprite]) => ({ at: `auxiliarySprites.${key}.path`, path: sprite.path })),
+      ...content.maps.map((map, position) => ({ at: `maps.${position}.background.path`, path: map.background.type === 'image' ? map.background.path : undefined })),
     ];
     return citedSprites
       .filter(({ path }) => path !== undefined && !this.options.sprites.has(path))

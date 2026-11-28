@@ -67,4 +67,16 @@ export type CombatEvent =
       readonly ownerId: string;
       readonly auxiliarySpriteKey: string;
     }
-  | { readonly type: 'trap'; readonly timeMs: number; readonly trapId: string; readonly change: 'placed' | 'triggered' | 'expired'; readonly cell: Hex; readonly side: BoardSide };
+  | { readonly type: 'trap'; readonly timeMs: number; readonly trapId: string; readonly change: 'placed' | 'triggered' | 'expired'; readonly cell: Hex; readonly side: BoardSide }
+  | {
+      readonly type: 'terrain';
+      readonly timeMs: number;
+      readonly terrainId: string;
+      readonly change: 'placed' | 'removed';
+      readonly name: string;
+      readonly side: BoardSide;
+      readonly center: Hex;
+      readonly cells: readonly Hex[];
+      readonly color: string;
+      readonly icon?: string;
+    };

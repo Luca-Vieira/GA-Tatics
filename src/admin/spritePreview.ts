@@ -88,7 +88,8 @@ export function createSpritePreview(drag: SpritePreviewDragHandlers, onImageErro
     image.setAttribute('width', String(box.width));
     image.setAttribute('height', String(box.height));
     // Espelha a imagem no próprio retângulo, que já está na posição espelhada.
-    image.setAttribute('transform', frame.facing === 'right' ? '' : `translate(${2 * boxCenterX} 0) scale(-1 1)`);
+    const isFlipped = (frame.facing === 'left') !== (frame.adjustment.mirrored === true);
+    image.setAttribute('transform', isFlipped ? `translate(${2 * boxCenterX} 0) scale(-1 1)` : '');
     image.setAttribute('visibility', 'visible');
   }
 

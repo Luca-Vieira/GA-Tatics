@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { effectSchema, statusKindSchema } from '@data/schemas/ability';
 import { characterSchema } from '@data/schemas/character';
+import { towerConfigSchema } from '@data/schemas/gameConfig';
+import { mapSchema } from '@data/schemas/map';
 import { synergyEffectSchema, synergySchema } from '@data/schemas/synergy';
 import { DEFAULT_GAME_CONTENT } from '@data/defaults/content';
 import { validateGameContent } from '@data/schemas/content';
@@ -101,6 +103,22 @@ describe('referência de sinergias', () => {
   it('explica os limites: de 3 a 5 sinergias e ao menos 4 personagens em cada', () => {
     expect(loose.sinergias.limites.join(' ')).toContain('de 3 a 5');
     expect(loose.sinergias.limites.join(' ')).toContain('pelo menos 4');
+  });
+});
+
+describe('referência das novidades do painel', () => {
+  it('os exemplos de torres e mapas atuais passam nos esquemas do jogo', () => {
+    expect(towerConfigSchema.safeParse(loose.torres.atuais).success).toBe(true);
+    for (const map of loose.mapas.atuais) {
+      expect(mapSchema.safeParse(map).success, map.id).toBe(true);
+    }
+    expect(loose.mapas.jsonSchema.additionalProperties).toBe(false);
+  });
+
+  it('cita os recursos novos do painel', () => {
+    for (const subject of ['poisonOnHit', 'mirrored', 'create_terrain', 'maximumPerOwner', 'variants', 'texture', 'Novidades']) {
+      expect(asText, subject).toContain(subject);
+    }
   });
 });
 

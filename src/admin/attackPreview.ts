@@ -1,6 +1,6 @@
 /** Desenho da área de ataque de um personagem em edição, com a descrição em português. */
-import { attackSchema, DEFAULT_ATTACK, type AttackDefinition } from '@data/schemas/attack';
-import { describeAttackArea, isInAttackArea } from '@shared/utils/attackArea';
+import { attackSchema, DEFAULT_ATTACK, describeAttack, type AttackDefinition } from '@data/schemas/attack';
+import { isInAttackArea } from '@shared/utils/attackArea';
 import { hexDistance, type Hex } from '@shared/utils/hex';
 import { el, svgEl } from './dom';
 import { flatTopCellCenter, flatTopHexPoints } from './hexDrawing';
@@ -64,7 +64,7 @@ export function createAttackPreview(): AttackPreview {
       const range = rangeOf(draft);
       if (!parsed.success || range === null) return;
       drawing.replaceChildren(drawArea(parsed.data, range));
-      description.textContent = describeAttackArea(parsed.data.shape, range, parsed.data.maxTargets, parsed.data.splashDamageFraction);
+      description.textContent = describeAttack(parsed.data, range);
     },
   };
 }

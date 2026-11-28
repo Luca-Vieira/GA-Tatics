@@ -1,0 +1,24 @@
+{
+  "id": "modelo_protetor",
+  "name": "Modelo Protetor",
+  "archetype": "Tanque",
+  "description": "Segura a linha de frente e protege os vizinhos quando aperta.",
+  "category": "tank",
+  "rarity": "common",
+  "active": false,
+  "stats": { "health": 9, "damage": 3, "attackSpeed": 3, "range": 1, "mobility": 3 },
+  "behavior": { "movement": "frontline", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "modelo_escudo",
+    "name": "Segura a bronca",
+    "description": "Com menos da metade da vida, recebe menos dano e estende parte da proteção aos aliados a até 2 casas.",
+    "activation": { "type": "health_threshold", "belowFraction": 0.5 },
+    "cooldownSeconds": 20,
+    "cast": { "target": "self", "range": 0, "areaRadius": 2 },
+    "effects": [
+      { "type": "status", "targets": "self", "status": "damage_reduction", "value": 0.5, "durationSeconds": 4 },
+      { "type": "status", "targets": "allies_in_area", "status": "damage_reduction", "value": 0.2, "durationSeconds": 4 }
+    ],
+    "visual": { "kind": "aura", "color": "#60a5fa", "icon": "🛡️" }
+  }
+}

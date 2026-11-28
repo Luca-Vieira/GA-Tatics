@@ -2,7 +2,7 @@ import { loadSettings, mergeSettings, saveSettings, type SettingsStorage } from 
 import { EffectThrottle } from './effectThrottle';
 import { MusicPlayer } from './musicPlayer';
 import { playSoundEffect } from './soundEffects';
-import type { AudioSettings, GameAudio, SoundEffect } from './types';
+import type { AudioSettings, GameAudio, MusicMood, SoundEffect } from './types';
 
 const VOLUME_SMOOTHING_SECONDS = 0.02;
 
@@ -30,6 +30,7 @@ export class AudioEngine implements GameAudio {
   /** Só existe depois do primeiro gesto do usuário (política de reprodução automática dos navegadores). */
   private graph: AudioGraph | null = null;
   private isMusicRequested = false;
+  private musicMood: MusicMood = 'calm';
 
   constructor(private readonly environment: AudioEnvironment) {
     this.settings = loadSettings(environment.storage);
@@ -63,6 +64,11 @@ export class AudioEngine implements GameAudio {
     this.syncMusic();
   }
 
+  setMusicMood(mood: MusicMood): void {
+    this.musicMood = mood;
+    this.graph?.musicPlayer.setMood(mood);
+  }
+
   getSettings(): AudioSettings {
     return { ...this.settings };
   }
@@ -94,8 +100,13 @@ export class AudioEngine implements GameAudio {
     musicBus.gain.value = volumeToGain(this.settings.musicVolume);
     effectsBus.gain.value = volumeToGain(this.settings.effectsVolume);
     musicBus.connect(context.destination);
-    effectsBus.connect(context.destination);
-    return { context, musicBus, effectsBus, musicPlayer: new MusicPlayer(context, musicBus) };
+    // Num combate cheio, muitos sons juntos estourariam: o compressor os segura sem baixar os que tocam sozinhos.
+    const limiter = context.createDynamicsCompressor();
+    effectsBus.connect(limiter);
+    limiter.connect(context.destination);
+    const musicPlayer = new MusicPlayer(context, musicBus);
+    musicPlayer.setMood(this.musicMood);
+    return { context, musicBus, effectsBus, musicPlayer };
   }
 
   /** No celular o áudio também pode ser interrompido depois de liberado (ligação, tela bloqueada). */

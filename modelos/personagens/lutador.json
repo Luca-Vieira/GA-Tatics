@@ -1,0 +1,22 @@
+{
+  "id": "modelo_lutador",
+  "name": "Modelo Lutador",
+  "archetype": "Lutador",
+  "description": "Corpo a corpo. Entra no meio e acerta dois de cada vez.",
+  "category": "melee",
+  "rarity": "common",
+  "active": false,
+  "stats": { "health": 7, "damage": 5, "attackSpeed": 4, "range": 1, "mobility": 5 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "attack": { "shape": "semicircle", "maxTargets": 2, "splashDamageFraction": 0.5 },
+  "ability": {
+    "id": "modelo_golpe_forte",
+    "name": "Golpe forte",
+    "description": "De tempos em tempos, acerta o alvo com mais força.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 7,
+    "cast": { "target": "current_target", "range": 1 },
+    "effects": [{ "type": "damage", "targets": "center_unit", "multiplier": 1.8 }],
+    "visual": { "kind": "burst", "color": "#f97316", "icon": "💥" }
+  }
+}

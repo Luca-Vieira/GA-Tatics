@@ -2,6 +2,8 @@
  * Descrição dos campos do formulário de personagem. O formulário trabalha sobre um objeto JSON simples (o "rascunho"):
  * cada campo diz onde o valor mora (`path`), e a validação de verdade é sempre a do esquema do jogo (`characterSchema`).
  */
+import { TERRAIN_STATUS_KINDS } from '@data/schemas/ability';
+import { MAP_TEXTURES, type MapBackground, type MapTexture } from '@data/schemas/map';
 import { DEFAULT_ATTACK } from '@data/schemas/attack';
 import { ATTACK_SHAPES, attackShapeLabel } from '@shared/utils/attackArea';
 
@@ -113,6 +115,9 @@ export const ATTACK_SHAPE_OPTIONS: readonly FieldOption[] = ATTACK_SHAPES.map((s
 export const ATTACK_FIELDS: readonly FieldSpec[] = [
   { path: ['attack', 'shape'], label: 'Formato da área', kind: 'select', options: ATTACK_SHAPE_OPTIONS, fallback: DEFAULT_ATTACK.shape, help: 'O comprimento da área é o alcance (em Atributos).' },
   { path: ['attack', 'maxTargets'], label: 'Inimigos por golpe', kind: 'integer', min: 1, max: 6, fallback: DEFAULT_ATTACK.maxTargets },
+  { path: ['attack', 'poisonOnHit', 'chance'], label: 'Chance de veneno no golpe (0 a 1)', kind: 'number', min: 0.01, max: 1, step: 0.05, optional: true, help: 'Vazio = sem veneno. Com a chance preenchida, os outros campos de veneno usam o padrão se ficarem vazios.' },
+  { path: ['attack', 'poisonOnHit', 'damageFraction'], label: 'Veneno: dano por pulso (fração do dano)', kind: 'number', min: 0.05, max: 2, step: 0.05, optional: true },
+  { path: ['attack', 'poisonOnHit', 'durationSeconds'], label: 'Veneno: duração (s)', kind: 'number', min: 0.5, step: 0.5, optional: true },
   {
     path: ['attack', 'splashDamageFraction'],
     label: 'Dano nos inimigos extras (0–1)',
@@ -184,11 +189,12 @@ export const SPRITE_FIELDS: readonly FieldSpec[] = [
   { path: ['sprite', 'offsetY'], label: 'Deslocamento Y', kind: 'number', step: 1 },
   { path: ['sprite', 'anchorX'], label: 'Âncora X (0–1)', kind: 'number', min: 0, max: 1, step: 0.05, help: 'Ponto da imagem que fica sobre os pés. Padrão: 0,5.' },
   { path: ['sprite', 'anchorY'], label: 'Âncora Y (0–1)', kind: 'number', min: 0, max: 1, step: 0.05, help: 'Padrão: 1 (a base da imagem).' },
+  { path: ['sprite', 'mirrored'], label: 'Espelhar a imagem', kind: 'checkbox', help: 'Marque se a arte foi desenhada olhando para a esquerda.' },
 ];
 
 // --- Efeitos da habilidade -------------------------------------------------------------------------
 
-export type EffectType = 'damage' | 'heal' | 'status' | 'place_trap' | 'summon' | 'summon_decoy' | 'registered';
+export type EffectType = 'damage' | 'heal' | 'status' | 'place_trap' | 'summon' | 'summon_decoy' | 'create_terrain' | 'registered';
 
 export const EFFECT_TYPE_OPTIONS: readonly FieldOption[] = [
   option('damage', 'Dano'),
@@ -197,12 +203,16 @@ export const EFFECT_TYPE_OPTIONS: readonly FieldOption[] = [
   option('summon', 'Invocação direta'),
   option('place_trap', 'Armadilha que invoca'),
   option('summon_decoy', 'Clone provocador'),
+  option('create_terrain', 'Terreno no chão'),
   option('registered', 'Comportamento especial'),
 ];
 
 const TARGET_OPTIONS = [option('center_unit', 'Unidade central'), option('enemies_in_area', 'Inimigos na área'), option('allies_in_area', 'Aliados na área'), option('self', 'O próprio personagem')];
 const PRIORITY_OPTIONS = [option('nearest', 'Mais próximo'), option('lowest_health_ratio', 'Menor proporção de vida')];
 const STATUS_OPTIONS = ['poison', 'drain', 'slow', 'sleep', 'weaken', 'confuse', 'damage_reduction', 'speed_boost', 'damage_boost', 'resting'].map((status) => option(status, status));
+
+const TERRAIN_STATUS_OPTIONS = TERRAIN_STATUS_KINDS.map((status) => option(status, status));
+const TERRAIN_AFFECTS_OPTIONS = [option('enemies', 'Inimigos'), option('allies', 'Aliados'), option('everyone', 'Todos')];
 
 const targetingFields = (effectPath: readonly PathStep[]): FieldSpec[] => [
   { path: [...effectPath, 'targets'], label: 'Quem recebe', kind: 'select', options: TARGET_OPTIONS },
@@ -211,7 +221,7 @@ const targetingFields = (effectPath: readonly PathStep[]): FieldSpec[] => [
 ];
 
 /** Campos da criatura invocada, comuns à invocação direta e à armadilha. */
-function summonFields(effectPath: readonly PathStep[]): FieldSpec[] {
+export function summonFields(effectPath: readonly PathStep[]): FieldSpec[] {
   const at = (...rest: PathStep[]): PathStep[] => [...effectPath, 'summon', ...rest];
   return [
     { path: at('name'), label: 'Nome da invocação', kind: 'text', help: 'O sprite dela é enviado na aba Sprites.' },
@@ -260,6 +270,20 @@ export function effectFields(effect: unknown, effectPath: readonly PathStep[]): 
         { path: at('lifetimeSeconds'), label: 'Duração (s)', kind: 'number', min: 0.5, step: 0.5 },
         { path: at('tauntRadius'), label: 'Raio de provocação (casas)', kind: 'integer', min: 1 },
         { path: at('placementRange'), label: 'Distância em que aparece (casas)', kind: 'integer', min: 1 },
+      ];
+    case 'create_terrain':
+      return [
+        { path: at('name'), label: 'Nome do terreno', kind: 'text' },
+        { path: at('affects'), label: 'Quem sofre o efeito', kind: 'select', options: TERRAIN_AFFECTS_OPTIONS, fallback: 'enemies' },
+        { path: at('status'), label: 'Estado aplicado em quem pisa', kind: 'select', options: TERRAIN_STATUS_OPTIONS },
+        { path: at('value'), label: 'Intensidade', kind: 'number', min: 0.01, step: 0.05, help: 'Fração (0,3 = 30%); no veneno, dano por pulso em fração do dano.' },
+        { path: at('tickSeconds'), label: 'Intervalo do pulso (s)', kind: 'number', min: 0.1, step: 0.5, optional: true, help: 'Obrigatório para veneno.' },
+        { path: at('lingerSeconds'), label: 'Quanto dura depois de sair (s)', kind: 'number', min: 0.5, step: 0.5, fallback: 1 },
+        { path: at('radius'), label: 'Tamanho (0 = uma casa; 1 = sete; 2 = dezenove)', kind: 'integer', min: 0, max: 2, fallback: 0 },
+        { path: at('durationSeconds'), label: 'Tempo no chão (s)', kind: 'number', min: 0.5, step: 0.5 },
+        { path: at('maximumPerOwner'), label: 'Máximo por personagem ao mesmo tempo', kind: 'integer', min: 1, max: 6, fallback: 2, help: 'Ao passar do limite, o terreno mais antigo some.' },
+        { path: at('color'), label: 'Cor das casas', kind: 'color' },
+        { path: at('icon'), label: 'Ícone na casa central (letra ou emoji)', kind: 'text', optional: true },
       ];
     case 'registered':
       return registeredFields(getAt(effect, ['behavior', 'id']), effectPath);
@@ -315,6 +339,8 @@ export function newEffect(type: EffectType): Json {
       return { type: 'summon', summon: { name: 'Invocação', stats: { health: 2, damage: 2, attackSpeed: 5, range: 1, mobility: 6 }, count: 1, lifetimeSeconds: 6 } };
     case 'summon_decoy':
       return { type: 'summon_decoy', name: 'Clone', health: 3, lifetimeSeconds: 4, tauntRadius: 3, placementRange: 2 };
+    case 'create_terrain':
+      return { type: 'create_terrain', name: 'Terreno', affects: 'enemies', status: 'slow', value: 0.3, lingerSeconds: 1, radius: 1, durationSeconds: 5, maximumPerOwner: 2, color: '#84cc16' };
     case 'registered':
       return { type: 'registered', behavior: { id: 'missing_health_haste', maxAttackSpeedBonus: 1, furyBelowFraction: 0.3, furyDamageBonus: 0.2 } };
   }
@@ -384,7 +410,7 @@ export const SYNERGY_FIELDS: readonly FieldSpec[] = [
 export type SynergyEffectType = 'attribute_multiplier' | 'resistance_bonus' | 'hp_regen' | 'cooldown_reduction' | 'positive_effect_amplification';
 
 export const SYNERGY_EFFECT_TYPE_OPTIONS: readonly FieldOption[] = [
-  option('attribute_multiplier', 'Multiplica dano ou velocidade de ataque'),
+  option('attribute_multiplier', 'Multiplica vida, dano ou velocidade de ataque'),
   option('resistance_bonus', 'Resistência (menos dano recebido)'),
   option('hp_regen', 'Regeneração de vida'),
   option('cooldown_reduction', 'Recarga mais rápida das habilidades'),
@@ -397,7 +423,7 @@ export function synergyEffectFields(effect: unknown, effectPath: readonly PathSt
   switch (getAt(effect, ['type'])) {
     case 'attribute_multiplier':
       return [
-        { path: at('attribute'), label: 'Atributo', kind: 'select', options: [option('damage', 'Dano'), option('attackSpeed', 'Velocidade de ataque')] },
+        { path: at('attribute'), label: 'Atributo', kind: 'select', options: [option('health', 'Vida'), option('damage', 'Dano'), option('attackSpeed', 'Velocidade de ataque')] },
         { path: at('value'), label: 'Multiplicador', kind: 'number', min: 0.01, step: 0.01, help: '1,06 = +6%; 1,12 = +12%.' },
       ];
     case 'resistance_bonus':
@@ -435,3 +461,89 @@ export function newSynergyEffect(type: SynergyEffectType): Json {
 export function newSynergyTier(threshold: number): Json {
   return { threshold, effects: [newSynergyEffect('attribute_multiplier')] };
 }
+
+// --- Torres ------------------------------------------------------------------------------------------
+
+/** Regras da loja, que valem para todas as torres. */
+export function towerRulesFields(towerPath: readonly PathStep[]): FieldSpec[] {
+  return [
+    { path: [...towerPath, 'offerChancePercent'], label: 'Chance de cada vaga da loja virar torre (%)', kind: 'number', min: 0, max: 100, step: 1 },
+    { path: [...towerPath, 'maximumOwned'], label: 'Máximo de torres por jogador', kind: 'integer', min: 0 },
+  ];
+}
+
+/** Propriedades de um tipo de torre. As personalizadas têm também nome e o liga/desliga. */
+export function towerFields(towerPath: readonly PathStep[], isVariant: boolean): FieldSpec[] {
+  const at = (key: string): PathStep[] => [...towerPath, key];
+  const identity: FieldSpec[] = isVariant
+    ? [
+        { path: at('name'), label: 'Nome', kind: 'text' },
+        { path: at('active'), label: 'Aparece na loja', kind: 'checkbox' },
+      ]
+    : [];
+  return [
+    ...identity,
+    { path: at('cost'), label: 'Custo na loja (moedas)', kind: 'integer', min: 1 },
+    { path: at('health'), label: 'Vida (1–10)', kind: 'number', min: 1, max: 10, step: 0.5 },
+    { path: at('incomePerRound'), label: 'Moedas por rodada de pé', kind: 'integer', min: 0 },
+    { path: at('compensationOnLoss'), label: 'Moedas se for destruída', kind: 'integer', min: 0 },
+    { path: at('color'), label: 'Cor do desenho provisório', kind: 'color', fallback: '#fbbf24' },
+    { path: at('description'), label: 'Frase de apresentação', kind: 'text', optional: true },
+  ];
+}
+
+/** O caminho é preenchido por quem usa. */
+export const TOWER_BUFF_RADIUS_FIELD: FieldSpec = {
+  path: [],
+  label: 'Alcance do bônus (casas)',
+  kind: 'integer',
+  min: 1,
+  max: 12,
+  optional: true,
+  help: 'Vazio = o time inteiro.',
+};
+
+// --- Mapas -------------------------------------------------------------------------------------------
+
+export const MAP_TEXTURE_LABELS: Readonly<Record<MapTexture, string>> = {
+  sand: 'Areia e mar',
+  lava: 'Rocha com lava',
+  grass: 'Gramado',
+  moon: 'Céu estrelado e crateras',
+  waves: 'Ondas',
+  dots: 'Pontilhado',
+};
+
+export function mapFields(mapPath: readonly PathStep[]): FieldSpec[] {
+  const at = (...rest: PathStep[]): PathStep[] => [...mapPath, ...rest];
+  return [
+    { path: at('name'), label: 'Nome', kind: 'text' },
+    { path: at('active'), label: 'Liberado para as partidas', kind: 'checkbox' },
+    { path: at('tiles', 'left'), label: 'Cor das casas do seu time (esquerda)', kind: 'color' },
+    { path: at('tiles', 'right'), label: 'Cor das casas do adversário (direita)', kind: 'color' },
+    { path: at('tiles', 'variation'), label: 'Variação de tom entre as casas (0 a 0,35)', kind: 'number', min: 0, max: 0.35, step: 0.02, fallback: 0 },
+  ];
+}
+
+export function mapBackgroundFields(type: MapBackground['type'], mapPath: readonly PathStep[]): FieldSpec[] {
+  const at = (key: string): PathStep[] => [...mapPath, 'background', key];
+  switch (type) {
+    case 'color':
+      return [{ path: at('color'), label: 'Cor do fundo', kind: 'color' }];
+    case 'gradient':
+      return [
+        { path: at('from'), label: 'Cor inicial', kind: 'color' },
+        { path: at('to'), label: 'Cor final', kind: 'color' },
+        { path: at('direction'), label: 'Direção', kind: 'select', options: [option('vertical', 'De cima para baixo'), option('horizontal', 'Da esquerda para a direita'), option('radial', 'Do centro para as bordas')] },
+      ];
+    case 'texture':
+      return [
+        { path: at('texture'), label: 'Textura', kind: 'select', options: MAP_TEXTURES.map((texture) => option(texture, MAP_TEXTURE_LABELS[texture])) },
+        { path: at('color'), label: 'Cor de base', kind: 'color' },
+        { path: at('detail'), label: 'Cor dos detalhes', kind: 'color' },
+      ];
+    case 'image':
+      return [{ path: at('darken'), label: 'Escurecer a imagem (0 a 0,85)', kind: 'number', min: 0, max: 0.85, step: 0.05, help: 'Mais escuro deixa o jogo mais legível.' }];
+  }
+}
+

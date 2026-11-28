@@ -1,0 +1,23 @@
+{
+  "id": "modelo_invocador",
+  "name": "Modelo Invocador",
+  "archetype": "Invocador",
+  "description": "Chama ajudantes para lutarem ao lado dele.",
+  "category": "utility",
+  "rarity": "rare",
+  "active": false,
+  "stats": { "health": 5, "damage": 4, "attackSpeed": 4, "range": 2, "mobility": 3 },
+  "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 2 },
+  "ability": {
+    "id": "modelo_chamar_estagiarios",
+    "name": "Reforço",
+    "description": "Invoca 2 ajudantes que lutam por 6 segundos.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 14,
+    "cast": { "target": "self", "range": 0 },
+    "effects": [
+      { "type": "summon", "summon": { "name": "Ajudante", "stats": { "health": 2, "damage": 2, "attackSpeed": 5, "range": 1, "mobility": 6 }, "count": 2, "lifetimeSeconds": 6 } }
+    ],
+    "visual": { "kind": "burst", "color": "#c084fc", "icon": "📣" }
+  }
+}

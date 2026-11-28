@@ -14,7 +14,7 @@ import { livesLostOnDefeat, preparationSecondsForRound, unitLimitForRound } from
 import { summarizeSynergies, type SynergyMapping, type SynergyStatus } from '../synergies/synergies';
 import { buildCombatConfig, combatUnitId, type CombatSetupContext } from './combatSetup';
 import type { CombatRules } from './roomModifiers';
-import { buildTowerCharacter, isTowerId, towerIncomeOf } from '../tower/tower';
+import { buildTowerCharacters, isTowerId, towerDefinitionOf, towerDefinitionsOf, towerIncomeOf } from '../tower/tower';
 
 export type GamePhase = 'preparation' | 'combat' | 'result' | 'finished';
 
@@ -70,11 +70,18 @@ export interface RoundSummary {
   readonly eliminatedIds: readonly string[];
   /** Torres destruídas na rodada, por jogador (elas somem para sempre). */
   readonly towersLostByPlayerId: Readonly<Record<string, number>>;
+  /** Quanto cada um desses recebe de volta no início da próxima rodada. */
+  readonly towerCompensationByPlayerId: Readonly<Record<string, number>>;
 }
 
 export interface Standing {
   readonly playerId: string;
   readonly place: number;
+}
+
+interface TowerLosses {
+  readonly lostByPlayerId: Record<string, number>;
+  readonly compensationByPlayerId: Record<string, number>;
 }
 
 /**
@@ -114,7 +121,7 @@ export class Game {
     this.roster = options.roster;
     this.config = options.config ?? DEFAULT_GAME_CONFIG;
     // A torre entra só aqui (não no elenco): a loja sorteia personagens do elenco e as torres à parte.
-    this.charactersById = new Map([...options.roster, buildTowerCharacter(this.config.tower)].map((character) => [character.id, character]));
+    this.charactersById = new Map([...options.roster, ...buildTowerCharacters(this.config.tower)].map((character) => [character.id, character]));
     this.synergies = options.synergies ?? DEFAULT_SYNERGIES;
     this.synergyMapping = options.synergyMapping;
     this.rotationIndex = options.rotationIndex;
@@ -294,11 +301,11 @@ export class Game {
       throw new Error('Não há combates para concluir.');
     }
     const duels = this.pendingDuels.map((duel) => this.applyDuelOutcome(duel));
-    const towersLostByPlayerId = this.removeDestroyedTowers();
+    const towerLosses = this.removeDestroyedTowers();
     const eliminatedIds = this.eliminateDefeatedPlayers();
     this.history.push({ round: this.currentRound, pairs: this.currentPairings.pairs, resting: this.currentPairings.resting });
     this.currentPhase = this.alivePlayers.length <= 1 ? 'finished' : 'result';
-    return { round: this.currentRound, duels, restingId: this.currentPairings.resting, eliminatedIds, towersLostByPlayerId };
+    return { round: this.currentRound, duels, restingId: this.currentPairings.resting, eliminatedIds, towersLostByPlayerId: towerLosses.lostByPlayerId, towerCompensationByPlayerId: towerLosses.compensationByPlayerId };
   }
 
   /** Começa a preparação da rodada seguinte: renda, juros, nova loja e novos confrontos. */
@@ -334,7 +341,8 @@ export class Game {
   }
 
   private combatSetupContext(): CombatSetupContext {
-    return { charactersById: this.charactersById, synergies: this.synergies, synergyMapping: this.synergyMapping, rules: this.combatRules };
+    const towerBuffsById = new Map(towerDefinitionsOf(this.config.tower).map((tower) => [tower.id, tower.buffs]));
+    return { charactersById: this.charactersById, synergies: this.synergies, synergyMapping: this.synergyMapping, towerBuffsById, rules: this.combatRules };
   }
 
   /** Quem luta como lado A (`top`) e como lado B (`bottom`): o jogador escolhido, se estiver no duelo, é sempre o B. */
@@ -364,8 +372,9 @@ export class Game {
   }
 
   /** Torres destruídas no combate saem do jogador de vez, mesmo que ele tenha vencido. */
-  private removeDestroyedTowers(): Record<string, number> {
+  private removeDestroyedTowers(): TowerLosses {
     const lostByPlayerId: Record<string, number> = {};
+    const compensationByPlayerId: Record<string, number> = {};
     for (const duel of this.pendingDuels) {
       const destroyedIds = new Set(duel.result.destroyedStructureIds);
       const sides = [
@@ -378,12 +387,13 @@ export class Game {
         if (lostTowers.length > 0) {
           player.units = player.units.filter((unit) => !lostTowers.includes(unit));
           lostByPlayerId[playerId] = (lostByPlayerId[playerId] ?? 0) + lostTowers.length;
-          const compensation = lostTowers.length * this.config.tower.compensationOnLoss;
+          const compensation = lostTowers.reduce((total, unit) => total + towerDefinitionOf(this.config.tower, unit.characterId).compensationOnLoss, 0);
+          compensationByPlayerId[playerId] = (compensationByPlayerId[playerId] ?? 0) + compensation;
           this.towerCompensationByPlayer.set(playerId, (this.towerCompensationByPlayer.get(playerId) ?? 0) + compensation);
         }
       }
     }
-    return lostByPlayerId;
+    return { lostByPlayerId, compensationByPlayerId };
   }
 
   private eliminateDefeatedPlayers(): string[] {

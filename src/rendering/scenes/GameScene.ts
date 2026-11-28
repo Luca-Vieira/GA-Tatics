@@ -2,12 +2,12 @@ import Phaser from 'phaser';
 import type { HumanDuel, MatchSession, MatchView, RoundResultSummary, SessionListener } from '@core/game/MatchSession';
 import { isAlive, type OwnedUnit, type PlayerState, type UnitLocation } from '@core/players/playerState';
 import { sellValueOf } from '@core/shop/shop';
-import { boardFightersOf, isTowerId } from '@core/tower/tower';
+import { boardFightersOf, isTowerId, towerDefinitionOf } from '@core/tower/tower';
 import { attackOf } from '@data/schemas/attack';
 import { createBoardProjection, type BoardProjection } from '@shared/utils/boardProjection';
 import type { Point } from '@shared/utils/hex';
 import { gameAudio, type SoundEffect } from '../audio';
-import { drawBoard } from '../board/boardLayout';
+import { SceneryView } from '../board/SceneryView';
 import { CombatPlayback } from '../combat/CombatPlayback';
 import { applyHiDpiCamera, pointerPosition } from '../display/hiDpiCamera';
 import { BOARD_CENTER, BOARD_HEX_SIZE, benchSlotLayouts } from '../layout/gameLayout';
@@ -36,7 +36,9 @@ import { PreparationView, type UnitAppearance } from './PreparationView';
 const COMBAT_SPEEDS = [1, 2, 4] as const;
 /** Depois do último golpe, a apresentação espera as animações de morte terminarem. */
 const COMBAT_SETTLE_MS = 900;
-const RESTING_WAIT_MS = 2500;
+const COUNTDOWN_SECONDS = 3;
+/** Quem descansa fica um pouco, o bastante para escolher uma luta e assistir. */
+const RESTING_WAIT_MS = 5000;
 const UI_REFRESH_INTERVAL_MS = 250;
 const TOAST_DURATION_MS = 1800;
 /** As regras da sala ficam um pouco mais na tela, para dar tempo de ler. */
@@ -81,6 +83,7 @@ export class GameScene extends Phaser.Scene {
   private shopPanel: ShopPanel | null = null;
   private synergyPanel: SynergyPanel | null = null;
   private sprites: SessionSprites | null = null;
+  private sceneryView!: SceneryView;
   private infoPanel!: InfoPanel;
   private controls!: MatchControls;
   private overlay!: ScreenOverlay;
@@ -94,6 +97,16 @@ export class GameScene extends Phaser.Scene {
   private isPresentationDone = false;
   private isMatchOver = false;
   private combatSettleMs = 0;
+  /** Quanto do combate da rodada já passou (no ritmo mostrado), para entrar nas outras lutas no ponto certo. */
+  private combatClockMs = 0;
+  private ownDuel: HumanDuel | null = null;
+  /** De quem é a luta mostrada no lugar da própria. */
+  private peekedPlayerId: string | null = null;
+  private isPreparationReadOnly = false;
+  private countdownSecond: number | null = null;
+  /** Quem esta tela joga, se joga: continua valendo depois de eliminado (a tela final fala da colocação dele). */
+  private playerId: string | null = null;
+  private hasExplainedWatching = false;
   private speedIndex = 0;
   /** Carta sob o mouse e carta fixada por um toque longo. */
   private hoveredCharacterId: string | null = null;
@@ -114,7 +127,7 @@ export class GameScene extends Phaser.Scene {
     applyHiDpiCamera(this);
     ensureUnitBodyTexture(this);
     this.projection = createBoardProjection(BOARD_CENTER, { hexSize: BOARD_HEX_SIZE });
-    drawBoard(this.add.graphics(), this.projection);
+    this.sceneryView = new SceneryView(this, this.projection);
     // A cena é reaproveitada entre partidas: o que o Phaser destruiu ao sair não pode ser destruído de novo.
     this.shopPanel = null;
     this.synergyPanel = null;
@@ -128,6 +141,9 @@ export class GameScene extends Phaser.Scene {
 
   override update(_time: number, deltaMs: number): void {
     this.session.update(deltaMs);
+    if (this.stage === 'combat' || this.stage === 'resting') {
+      this.combatClockMs += deltaMs * (this.stage === 'combat' ? this.combatSpeed : 1);
+    }
     switch (this.stage) {
       case 'combat':
         this.updateCombat(deltaMs);
@@ -142,6 +158,8 @@ export class GameScene extends Phaser.Scene {
         this.updateResult(deltaMs);
         break;
       case 'preparation':
+        this.tickCountdown();
+        break;
       case 'waiting':
       case 'ended':
         break;
@@ -150,6 +168,16 @@ export class GameScene extends Phaser.Scene {
     this.refreshTimerMs -= deltaMs;
     if (this.refreshTimerMs <= 0) {
       this.refreshInterface();
+    }
+  }
+
+  /** Um toque por segundo no fim da preparação, para quem ainda não ficou pronto. */
+  private tickCountdown(): void {
+    const secondsLeft = Math.ceil(this.session.preparationRemainingMs / 1000);
+    const isWorthWarning = !this.isSpectator && !this.human.ready && secondsLeft >= 1 && secondsLeft <= COUNTDOWN_SECONDS;
+    if (isWorthWarning && secondsLeft !== this.countdownSecond) {
+      this.countdownSecond = secondsLeft;
+      gameAudio.play('countdown');
     }
   }
 
@@ -187,6 +215,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createPreparationView(): PreparationView {
+    this.isPreparationReadOnly = this.isSpectator;
     const shopBounds = this.shopPanel!.bounds;
     return new PreparationView(this, {
       projection: this.projection,
@@ -221,9 +250,16 @@ export class GameScene extends Phaser.Scene {
       // A torre não ataca: não mostra área de ataque.
       range: isTowerId(unit.characterId) ? 0 : character.stats.range,
       attackShape: attackOf(character).shape,
+      buffRadius: isTowerId(unit.characterId) ? this.towerBuffRadiusOf(unit.characterId) : 0,
       sprite: this.sprites?.appearanceOf(spriteIdOfCharacter(unit.characterId)),
-      accentColor: Number.parseInt((synergy?.color ?? '#94a3b8').slice(1), 16),
+      // A torre não tem sinergia: o anel leva a cor do tipo dela, para diferenciar umas das outras.
+      accentColor: Number.parseInt((isTowerId(unit.characterId) ? character.ability.visual.color : (synergy?.color ?? '#94a3b8')).slice(1), 16),
     };
+  }
+
+  private towerBuffRadiusOf(towerId: string): number {
+    const { buffs } = towerDefinitionOf(this.match.config.tower, towerId);
+    return Math.max(0, ...buffs.map((buff) => buff.radius ?? 0));
   }
 
   private get match(): MatchView {
@@ -247,6 +283,7 @@ export class GameScene extends Phaser.Scene {
       this.preparation.destroy();
     }
     this.session = session;
+    this.sceneryView.show(session.scenery);
     this.shopPanel = this.createShopPanel(session.match.config.shop.offerSize);
     this.shopPanel.setVisible(!this.isSpectator);
     this.synergyPanel = new SynergyPanel(this, session.match.synergies.length);
@@ -257,6 +294,8 @@ export class GameScene extends Phaser.Scene {
     this.resetPresentation();
     this.preparation = this.createPreparationView();
     this.isMatchOver = false;
+    this.hasExplainedWatching = false;
+    this.playerId = session.spectator ? null : session.humanId;
     session.setListener(this.createSessionListener());
     session.start();
     if (session.roomRules.length > 0) {
@@ -266,7 +305,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private closeSession(): void {
+    gameAudio.setMusicMood('calm');
     this.session?.dispose();
+    this.sceneryView.destroy();
     this.sprites?.destroy();
     this.shopPanel?.destroy();
     this.synergyPanel?.destroy();
@@ -286,6 +327,7 @@ export class GameScene extends Phaser.Scene {
     return {
       preparationStarted: () => this.beginPreparation(),
       combatStarted: (humanDuel) => this.startCombat(humanDuel),
+      combatPeekStarted: (playerId, duel) => this.showPeekedCombat(playerId, duel),
       roundConcluded: (summary) => {
         this.pendingSummary = summary;
         this.showResultWhenReady();
@@ -305,9 +347,13 @@ export class GameScene extends Phaser.Scene {
       },
       actionFailed: (reason) => {
         this.pendingActionSound = null;
+        gameAudio.play('error');
         this.toast(FAILURE_MESSAGES[reason], TEXT_COLORS.bad);
       },
-      fusionHappened: (message) => this.toast(message, TEXT_COLORS.gold),
+      fusionHappened: (message) => {
+        gameAudio.play('fusion');
+        this.toast(message, TEXT_COLORS.gold);
+      },
       connectionLost: () => this.showConnectionLost(),
     };
   }
@@ -324,6 +370,7 @@ export class GameScene extends Phaser.Scene {
     this.roundSummary = null;
     this.isPresentationDone = false;
     this.combatSettleMs = 0;
+    this.peekedPlayerId = null;
     this.controls.hideToast();
     this.controls.showSellHint(false);
   }
@@ -333,6 +380,11 @@ export class GameScene extends Phaser.Scene {
     this.overlay.hide();
     this.resetPresentation();
     this.stage = 'preparation';
+    gameAudio.setMusicMood('calm');
+    this.countdownSecond = null;
+    if (this.isPreparationReadOnly !== this.isSpectator) {
+      this.becomeViewer();
+    }
     this.preparation.setVisible(true);
     this.preparation.setEnabled(true);
     this.preparation.select(null);
@@ -340,8 +392,18 @@ export class GameScene extends Phaser.Scene {
     this.refreshInterface();
   }
 
+  /** Quem acabou de ser eliminado passa a só assistir: a loja some e o tabuleiro vira só de consulta. */
+  private becomeViewer(): void {
+    this.preparation.destroy();
+    this.preparation = this.createPreparationView();
+    this.shopPanel?.setVisible(!this.isSpectator);
+    this.toast('Você foi eliminado. Toque no nome de um jogador para acompanhá-lo quando quiser.', TEXT_COLORS.gold, ROOM_RULES_TOAST_MS);
+  }
+
   private startCombat(humanDuel: HumanDuel | null): void {
     this.resetPresentation();
+    this.ownDuel = humanDuel;
+    this.combatClockMs = humanDuel?.elapsedMs ?? 0;
     this.preparation.setEnabled(false);
     this.preparation.setVisible(false);
     this.preparation.select(null);
@@ -350,17 +412,76 @@ export class GameScene extends Phaser.Scene {
 
     if (humanDuel) {
       this.stage = 'combat';
-      this.playback = this.createPlayback(humanDuel);
+      this.playback = this.createPlayback(humanDuel, this.session.humanId);
+      gameAudio.setMusicMood('combat');
+      gameAudio.play('combat_start');
     } else {
       this.stage = 'resting';
       this.stageTimerMs = RESTING_WAIT_MS;
     }
+    this.explainWatchingOnce();
     this.refreshInterface();
   }
 
-  private createPlayback(humanDuel: HumanDuel): CombatPlayback {
+  private explainWatchingOnce(): void {
+    if (this.hasExplainedWatching || this.isSpectator || !isAlive(this.human)) {
+      return;
+    }
+    this.hasExplainedWatching = true;
+    this.toast('Toque no nome de um jogador, no alto, para assistir à luta dele.', TEXT_COLORS.gold, ROOM_RULES_TOAST_MS);
+  }
+
+  // --- Assistir a outra luta ------------------------------------------------------------------------
+
+  /** Mostra a luta de outra pessoa no lugar da própria, no ponto em que o combate da rodada está. */
+  private showPeekedCombat(playerId: string, duel: HumanDuel): void {
+    if (this.stage !== 'combat' && this.stage !== 'resting') {
+      return;
+    }
+    const watchedName = this.match.getPlayer(playerId).name;
+    if (this.ownDuel && this.ownDuel.topId === duel.topId && this.ownDuel.bottomId === duel.bottomId) {
+      this.toast(`${watchedName} está lutando contra você: é esta mesma luta.`, TEXT_COLORS.muted);
+      return;
+    }
+    if (this.combatClockMs >= duel.durationMs) {
+      this.toast(`A luta de ${watchedName} já terminou.`, TEXT_COLORS.muted);
+      return;
+    }
+    this.peekedPlayerId = playerId;
+    this.showDuelAtClock(duel, playerId);
+    this.toast(`👁 Assistindo ${watchedName}. Toque no seu nome para voltar.`, TEXT_COLORS.gold);
+    this.refreshInterface();
+  }
+
+  private returnToOwnCombat(): void {
+    if (this.peekedPlayerId === null) {
+      return;
+    }
+    this.peekedPlayerId = null;
+    if (this.ownDuel) {
+      this.showDuelAtClock(this.ownDuel, this.session.humanId);
+    } else {
+      this.playback?.destroy();
+      this.playback = null;
+      this.stage = 'resting';
+      this.stageTimerMs = Math.max(0, RESTING_WAIT_MS - this.combatClockMs);
+      this.isPresentationDone = false;
+    }
+    this.refreshInterface();
+  }
+
+  private showDuelAtClock(duel: HumanDuel, viewedPlayerId: string): void {
+    gameAudio.setMusicMood('combat');
+    this.playback?.destroy();
+    this.playback = this.createPlayback({ ...duel, elapsedMs: this.combatClockMs }, viewedPlayerId);
+    this.stage = 'combat';
+    this.combatSettleMs = 0;
+    this.isPresentationDone = false;
+  }
+
+  private createPlayback(humanDuel: HumanDuel, viewedPlayerId: string): CombatPlayback {
     const playback = new CombatPlayback(this, this.projection, humanDuel.combatConfig, {
-      isViewedFromSideA: humanDuel.topId === this.session.humanId,
+      isViewedFromSideA: humanDuel.topId === viewedPlayerId,
       spriteOf: (unit) => this.sprites?.appearanceOf(spriteIdOfCombatUnit(unit)),
       playSound: (effect) => gameAudio.play(effect),
     });
@@ -394,6 +515,11 @@ export class GameScene extends Phaser.Scene {
     if (!playback.isFinished) {
       return;
     }
+    // A luta assistida acabou antes da própria: volta para ela.
+    if (this.peekedPlayerId !== null && this.ownDuel && this.combatClockMs < this.ownDuel.durationMs) {
+      this.returnToOwnCombat();
+      return;
+    }
     this.combatSettleMs += deltaMs * this.combatSpeed;
     if (this.combatSettleMs >= COMBAT_SETTLE_MS) {
       this.finishPresentation();
@@ -421,6 +547,7 @@ export class GameScene extends Phaser.Scene {
 
     this.roundSummary = summary;
     this.stage = 'result';
+    gameAudio.setMusicMood('calm');
     this.stageTimerMs = this.match.config.rounds.resultSeconds * 1000;
     this.playResultSound(summary);
     this.showRoundResult();
@@ -474,10 +601,20 @@ export class GameScene extends Phaser.Scene {
 
   private showEndScreen(): void {
     this.stage = 'ended';
+    gameAudio.setMusicMood('calm');
+    this.playMatchEndSound();
     this.leaveDialog.hide();
-    const model = buildEndScreen(this.match, this.session.humanId, { isSpectator: this.isSpectator });
+    const model = this.playerId === null ? buildEndScreen(this.match, this.session.humanId, { isSpectator: true }) : buildEndScreen(this.match, this.playerId);
     this.overlay.show({ ...model, buttonLabel: this.sceneData.endButtonLabel }, () => this.playAgain());
     this.refreshInterface();
+  }
+
+  private playMatchEndSound(): void {
+    if (this.playerId === null) {
+      return;
+    }
+    const place = this.match.standings().find((standing) => standing.playerId === this.playerId)?.place;
+    gameAudio.play(place === 1 ? 'match_win' : 'match_loss');
   }
 
   private playAgain(): void {
@@ -489,6 +626,7 @@ export class GameScene extends Phaser.Scene {
 
   private showConnectionLost(): void {
     this.stage = 'ended';
+    gameAudio.setMusicMood('calm');
     this.resetPresentation();
     this.leaveDialog.hide();
     this.preparation.setEnabled(false);
@@ -531,15 +669,43 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Toque numa ficha do placar: quem assiste troca de jogador; quem joga vê (ou deixa de ver) a luta de alguém. */
   private watchPlayer(playerId: string): void {
     const spectator = this.session.spectator;
-    if (!spectator || spectator.watchedPlayerId === playerId) {
+    if (!spectator) {
+      this.peekOrReturn(playerId);
+      return;
+    }
+    if (spectator.watchedPlayerId === playerId) {
       return;
     }
     gameAudio.play('click');
     this.closeInspection();
     // A sessão responde com os avisos de sempre (preparação ou combate) já na visão do escolhido.
     spectator.watch(playerId);
+  }
+
+  private peekOrReturn(playerId: string): void {
+    // Quem acabou de cair já pode acompanhar os outros, sem esperar a próxima rodada.
+    if (!isAlive(this.human)) {
+      this.session.watchCombat(playerId);
+      return;
+    }
+    if (playerId === this.session.humanId) {
+      gameAudio.play('click');
+      this.returnToOwnCombat();
+      return;
+    }
+    if (playerId === this.peekedPlayerId) {
+      return;
+    }
+    gameAudio.play('click');
+    this.closeInspection();
+    if (this.stage !== 'combat' && this.stage !== 'resting') {
+      this.toast(FAILURE_MESSAGES.player_not_in_combat, TEXT_COLORS.muted);
+      return;
+    }
+    this.session.watchCombat(playerId);
   }
 
   // --- Ações do jogador ---------------------------------------------------------------------------
@@ -648,8 +814,9 @@ export class GameScene extends Phaser.Scene {
   private teamLabelOf(side: 'A' | 'B'): string {
     const isViewedFromSideA = this.playback?.isViewedFromSideA ?? false;
     const isOwnTeam = (side === 'A') === isViewedFromSideA;
-    if (this.isSpectator) {
-      return isOwnTeam ? `Equipe de ${this.human.name}` : 'Equipe adversária';
+    const watchedName = this.isSpectator ? this.human.name : this.peekedPlayerId === null ? null : this.match.getPlayer(this.peekedPlayerId).name;
+    if (watchedName !== null) {
+      return isOwnTeam ? `Equipe de ${watchedName}` : 'Equipe adversária';
     }
     return isOwnTeam ? 'Sua equipe' : 'Adversário';
   }
@@ -677,7 +844,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.refreshTimerMs = UI_REFRESH_INTERVAL_MS;
     const humanId = this.session.humanId;
-    this.topBar.render(buildTopBarModel(this.match, humanId, this.timerLabel(), this.phaseLabel(), { isSpectator: this.isSpectator }));
+    this.topBar.render(buildTopBarModel(this.match, humanId, this.timerLabel(), this.phaseLabel(), { isSpectator: this.isSpectator, peekedPlayerId: this.peekedPlayerId }));
     if (!this.isSpectator) {
       this.shopPanel.render(this.shopModel());
     }
@@ -745,7 +912,7 @@ export class GameScene extends Phaser.Scene {
         return opponentId ? `Preparação · adversário: ${this.match.getPlayer(opponentId).name}` : 'Preparação · você descansa nesta rodada';
       }
       case 'combat':
-        return 'Combate';
+        return this.peekedPlayerId === null ? 'Combate' : `Combate · assistindo ${this.match.getPlayer(this.peekedPlayerId).name}`;
       case 'resting':
         return 'Descanso';
       case 'result':

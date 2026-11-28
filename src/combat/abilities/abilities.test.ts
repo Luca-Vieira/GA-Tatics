@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHARACTERS } from '@data/defaults/characters';
 import { abilitySchema } from '@data/schemas/ability';
+import type { AttackDefinition } from '@data/schemas/attack';
 import { hexDistance, hexNeighbors, offsetToAxial, type Hex } from '@shared/utils/hex';
+import { BOARD_CELLS } from '@shared/constants/board';
 import { SeededRandom } from '@shared/utils/random';
 import { computeModifiers } from '../effects/modifiers';
+import { applyStatusToUnit } from '../effects/status';
 import { CombatSimulation } from '../engine/CombatSimulation';
 import type { CombatEvent } from '../engine/events';
+import type { TerrainRequest } from '../engine/world';
 import { createCombatUnit } from '../units/createCombatUnit';
 import { unitSpecFromCharacter } from '../units/fromCharacter';
 import { HEALTH_PER_POINT, type BaseStats } from '../units/stats';
@@ -72,7 +76,9 @@ describe('Bixo — Descansar, né (limiar de vida)', () => {
     const castTime = casts[0]!.timeMs;
 
     const appliedStatuses = ofType(events, 'status').filter((event) => event.unitId === 'A1' && event.change === 'applied' && event.timeMs === castTime);
-    expect(appliedStatuses.map((event) => event.status).sort()).toEqual(['damage_reduction', 'resting']);
+    // A redução aparece duas vezes: a dele (60%… 70%) e a da área, que o alcança também e não soma.
+    expect([...new Set(appliedStatuses.map((event) => event.status))].sort()).toEqual(['damage_reduction', 'resting']);
+    expect(unitOf(simulation, 'A1').statuses.every((status) => status.kind !== 'damage_reduction' || status.value === 0.7)).toBe(true);
 
     const bixoAttacksWhileResting = ofType(events, 'attack').filter((event) => event.attackerId === 'A1' && event.timeMs >= castTime && event.timeMs < castTime + 4000);
     expect(bixoAttacksWhileResting).toHaveLength(0);
@@ -261,12 +267,52 @@ describe('João Lucas — Faz o L poderoso (projétil em L)', () => {
   });
 });
 
+/** O mesmo personagem sem a chance de veneno no ataque comum. */
+function withoutPoisonOnHit<Spec extends { attack?: AttackDefinition }>(spec: Spec): Spec {
+  return { ...spec, attack: { ...spec.attack!, poisonOnHit: undefined } };
+}
+
+describe('Matheus — veneno no ataque comum', () => {
+  const attackWith = (chance: number) => {
+    const spec = characterSpec('matheus', 'A1', 'A', cellAt(2, 3));
+    // Sem habilidade, para só o ataque comum envenenar.
+    return { ...spec, ability: undefined, attack: { ...spec.attack!, poisonOnHit: { chance, damageFraction: 0.2, tickSeconds: 1, durationSeconds: 3 } } };
+  };
+  const poisonTicksWith = (chance: number) => {
+    const simulation = new CombatSimulation({ seed: 3, units: [attackWith(chance), dummy('B1', 'B', cellAt(2, 4))] });
+    pinInPlace(simulation, 'B1');
+    return ofType(stepUntil(simulation, 8000), 'damage').filter((event) => event.cause === 'poison');
+  };
+
+  it('quando o sorteio acerta, o alvo sofre o dano de cada pulso', () => {
+    const ticks = poisonTicksWith(1);
+    expect(ticks.length).toBeGreaterThan(2);
+    expect(ticks[0]!.amount).toBeCloseTo(attackDamageOf('matheus') * 0.2);
+  });
+
+  it('sem sorte, nada de veneno', () => {
+    expect(poisonTicksWith(0.000001)).toHaveLength(0);
+  });
+
+  it('o veneno fraco não enfraquece nem prolonga o forte; o forte substitui o fraco', () => {
+    const simulation = new CombatSimulation({ seed: 1, units: [dummy('A1', 'A', cellAt(2, 3)), dummy('B1', 'B', cellAt(2, 4))] });
+    const target = unitOf(simulation, 'B1');
+    const poison = (value: number, tickMs: number, durationMs: number) => ({ kind: 'poison' as const, value, tickMs, durationMs, charges: null, healRatio: 0 });
+    applyStatusToUnit(target, 'A1', poison(10, 1000, 3000), 0);
+    applyStatusToUnit(target, 'A1', poison(25, 500, 5000), 100);
+    expect(target.statuses[0]).toMatchObject({ value: 25, tickMs: 500, endsAtMs: 5100, nextTickAtMs: 600 });
+    applyStatusToUnit(target, 'A1', poison(10, 1000, 9000), 200);
+    expect(target.statuses[0]).toMatchObject({ value: 25, tickMs: 500, endsAtMs: 5100 });
+  });
+});
+
 describe('Matheus — Sujeira em área (enfraquecimento e veneno)', () => {
   it('enfraquece todos os inimigos da área e envenena só o do centro', () => {
     const [center, first, second] = enemyTriangle();
     const simulation = new CombatSimulation({
       seed: 1,
-      units: [characterSpec('matheus', 'A1', 'A', cellAt(2, 3)), dummy('B1', 'B', center), dummy('B2', 'B', first), dummy('B3', 'B', second)],
+      // Sem o veneno do ataque comum, para medir só o da habilidade.
+      units: [withoutPoisonOnHit(characterSpec('matheus', 'A1', 'A', cellAt(2, 3))), dummy('B1', 'B', center), dummy('B2', 'B', first), dummy('B3', 'B', second)],
     });
     pinInPlace(simulation, 'B1', 'B2', 'B3');
     const events = stepUntil(simulation, 5000);
@@ -608,3 +654,128 @@ describe('Derson — Invocar o protagonista (clone provocador)', () => {
   });
 });
 
+const terrainCenter = cellAt(2, 6);
+const farAway = BOARD_CELLS.reduce((farthest, cell) => (hexDistance(terrainCenter, cell) > hexDistance(terrainCenter, farthest) ? cell : farthest), terrainCenter);
+
+function terrainRequest(overrides: Partial<TerrainRequest> = {}): TerrainRequest {
+  return {
+    ownerId: 'A1',
+    side: 'A',
+    name: 'Poça',
+    center: terrainCenter,
+    cells: [terrainCenter],
+    affects: 'enemies',
+    status: { kind: 'slow', durationMs: 500, value: 0.3, tickMs: null, charges: null, healRatio: 0 },
+    lifetimeMs: 3000,
+    maximumPerOwner: 2,
+    color: '#84cc16',
+    ...overrides,
+  };
+}
+
+/** Dois bonecos parados: A1 longe e B1 em cima da casa central. */
+function standingOn(cell: Hex = terrainCenter): CombatSimulation {
+  const simulation = new CombatSimulation({ seed: 1, units: [dummy('A1', 'A', farAway), dummy('B1', 'B', cell)] });
+  pinInPlace(simulation, 'A1', 'B1');
+  return simulation;
+}
+
+const statusKindsOf = (simulation: CombatSimulation, id: string) => unitOf(simulation, id).statuses.map((status) => status.kind);
+const terrainChanges = (events: CombatEvent[]) => ofType(events, 'terrain').map((event) => `${event.change}:${event.terrainId}`);
+
+describe('terreno no chão', () => {
+  it('quem está em cima recebe o estado enquanto o terreno durar, com um único aviso', () => {
+    const simulation = standingOn();
+    simulation.placeTerrain(terrainRequest());
+    const events = [...simulation.drainEvents(), ...stepUntil(simulation, 2000)];
+    expect(statusKindsOf(simulation, 'B1')).toEqual(['slow']);
+    expect(ofType(events, 'status').filter((event) => event.status === 'slow' && event.change === 'applied')).toHaveLength(1);
+  });
+
+  it('some quando o tempo acaba, e o estado ainda dura o tempo de sobra', () => {
+    const simulation = standingOn();
+    simulation.placeTerrain(terrainRequest());
+    const events = [...simulation.drainEvents(), ...stepUntil(simulation, 3200)];
+    expect(terrainChanges(events)).toEqual(['placed:terrain1', 'removed:terrain1']);
+    expect(statusKindsOf(simulation, 'B1')).toEqual(['slow']);
+    stepUntil(simulation, 4000);
+    expect(statusKindsOf(simulation, 'B1')).toEqual([]);
+  });
+
+  it('quem só passa fica com o estado pelo tempo de sobra depois de sair', () => {
+    const simulation = standingOn();
+    simulation.placeTerrain(terrainRequest({ lifetimeMs: 10_000 }));
+    stepUntil(simulation, 500);
+    unitOf(simulation, 'B1').cell = cellAt(2, 8);
+    stepUntil(simulation, 800);
+    expect(statusKindsOf(simulation, 'B1')).toEqual(['slow']);
+    stepUntil(simulation, 1300);
+    expect(statusKindsOf(simulation, 'B1')).toEqual([]);
+  });
+
+  it('o veneno do chão pulsa mesmo com o tempo de sobra menor que o intervalo, enquanto a unidade estiver em cima', () => {
+    const simulation = standingOn();
+    simulation.placeTerrain(terrainRequest({ status: { kind: 'poison', durationMs: 500, value: 7, tickMs: 1000, charges: null, healRatio: 0 } }));
+    const ticks = ofType(stepUntil(simulation, 3000), 'damage').filter((event) => event.cause === 'poison');
+    expect(ticks.length).toBeGreaterThanOrEqual(2);
+    expect(ticks.every((tick) => tick.amount === 7 && tick.targetId === 'B1')).toBe(true);
+  });
+
+  it('respeita quem deve ser afetado', () => {
+    const forAllies = standingOn();
+    forAllies.placeTerrain(terrainRequest({ affects: 'allies' }));
+    stepUntil(forAllies, 500);
+    expect(statusKindsOf(forAllies, 'B1')).toEqual([]);
+
+    const forEveryone = standingOn();
+    forEveryone.placeTerrain(terrainRequest({ affects: 'everyone', cells: [terrainCenter, farAway] }));
+    stepUntil(forEveryone, 500);
+    expect(statusKindsOf(forEveryone, 'A1')).toEqual(['slow']);
+    expect(statusKindsOf(forEveryone, 'B1')).toEqual(['slow']);
+  });
+
+  it('cada personagem mantém só o limite: o mais antigo dá lugar ao novo, sem mexer nos dos outros', () => {
+    const simulation = standingOn();
+    simulation.placeTerrain(terrainRequest());
+    simulation.placeTerrain(terrainRequest({ ownerId: 'B1', side: 'B' }));
+    simulation.placeTerrain(terrainRequest({ name: 'Outro' }));
+    simulation.placeTerrain(terrainRequest());
+    simulation.placeTerrain(terrainRequest());
+    expect(terrainChanges(simulation.drainEvents())).toEqual(['placed:terrain1', 'placed:terrain2', 'placed:terrain3', 'placed:terrain4', 'removed:terrain1', 'placed:terrain5']);
+  });
+
+  it('o veneno no terreno exige o intervalo do pulso no cadastro', () => {
+    const ability = {
+      id: 'x',
+      name: 'x',
+      description: 'x',
+      activation: { type: 'cooldown' },
+      cooldownSeconds: 3,
+      effects: [{ type: 'create_terrain', name: 'Poça', status: 'poison', value: 0.2, durationSeconds: 3, color: '#84cc16' }],
+      visual: { kind: 'none', color: '#84cc16' },
+    };
+    expect(abilitySchema.safeParse(ability).success).toBe(false);
+    expect(abilitySchema.safeParse({ ...ability, effects: [{ ...ability.effects[0], tickSeconds: 1 }] }).success).toBe(true);
+  });
+});
+
+describe('Wilian — Cantinho da soneca', () => {
+  it('põe o alvo para dormir e deixa um terreno que atrasa, no máximo dois por vez', () => {
+    const simulation = new CombatSimulation({ seed: 2, units: [characterSpec('wilian', 'A1', 'A', cellAt(2, 4)), dummy('B1', 'B', cellAt(2, 7))] });
+    pinInPlace(simulation, 'A1', 'B1');
+    const events = stepUntil(simulation, 20_000);
+    const placed = ofType(events, 'terrain').filter((event) => event.change === 'placed');
+    expect(placed.length).toBeGreaterThanOrEqual(3);
+    expect(placed[0]!.cells.length).toBeGreaterThan(1);
+    const alive = new Set<string>();
+    for (const event of ofType(events, 'terrain')) {
+      if (event.change === 'placed') {
+        alive.add(event.terrainId);
+      } else {
+        alive.delete(event.terrainId);
+      }
+      expect(alive.size).toBeLessThanOrEqual(2);
+    }
+    expect(ofType(events, 'status').some((event) => event.unitId === 'B1' && event.status === 'slow')).toBe(true);
+  });
+});

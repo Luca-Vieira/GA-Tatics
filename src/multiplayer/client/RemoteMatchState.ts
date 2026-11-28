@@ -4,9 +4,9 @@ import type { MatchView } from '@core/game/MatchSession';
 import { applyRoomModifiers, describeRoomModifiers } from '@core/game/roomModifiers';
 import { boardUnitsOf, type OwnedUnit, type PlayerState } from '@core/players/playerState';
 import { summarizeSynergies } from '@core/synergies/synergies';
-import { buildTowerCharacter } from '@core/tower/tower';
+import { buildTowerCharacters } from '@core/tower/tower';
 import { mirrorCell } from '@shared/constants/board';
-import type { DuelView, MatchSetupView, OwnPlayerView, PublicPlayerView, ServerMessage } from '../protocol/serverMessages';
+import type { DuelView, MatchSetupView, OwnPlayerView, PublicPlayerView, ServerMessage, UnitView } from '../protocol/serverMessages';
 
 type RoundStartedMessage = Extract<ServerMessage, { type: 'round_started' }>;
 type MatchEndedMessage = Extract<ServerMessage, { type: 'match_ended' }>;
@@ -47,7 +47,7 @@ export class RemoteMatchState implements MatchView {
     this.synergyRotation = content.rotation;
     this.synergyMapping = started.synergyMapping;
     this.rotationIndex = started.rotationIndex;
-    this.charactersById = new Map([...content.characters, buildTowerCharacter(this.config.tower)].map((character) => [character.id, character]));
+    this.charactersById = new Map([...content.characters, ...buildTowerCharacters(this.config.tower)].map((character) => [character.id, character]));
     this.playerList = started.players.map((player) => ({
       id: player.playerId,
       name: player.name,
@@ -140,6 +140,11 @@ export class RemoteMatchState implements MatchView {
     this.playerList.forEach((player) => {
       player.units = [];
     });
+  }
+
+  /** Jogador eliminado, na preparação: o tabuleiro atual de quem ele acompanha. */
+  showScoutedBoard(units: readonly UnitView[]): void {
+    this.getPlayer(this.humanId).units = units.map((unit, index): OwnedUnit => ({ id: unit.id, characterId: unit.characterId, starLevel: unit.starLevel, acquiredOrder: index, location: unit.location }));
   }
 
   /** Monta o tabuleiro do jogador acompanhado com o que o duelo mostra (nas casas do referencial dele). */

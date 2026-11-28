@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { auxiliarySpriteSlotsOf } from '@data/auxiliarySprites';
-import { statusKindSchema } from '@data/schemas/ability';
+import { statusKindSchema, TERRAIN_STATUS_KINDS } from '@data/schemas/ability';
 import { attackSchema, DEFAULT_ATTACK } from '@data/schemas/attack';
 import { characterSchema } from '@data/schemas/character';
 import { MAXIMUM_SYNERGY_COUNT, MINIMUM_SYNERGY_COUNT, type GameContent } from '@data/schemas/content';
+import { towerVariantSchema } from '@data/schemas/gameConfig';
+import { MAP_TEXTURES, MAXIMUM_MAPS, mapSchema } from '@data/schemas/map';
 import { MINIMUM_CHARACTERS_PER_SYNERGY, synergySchema } from '@data/schemas/synergy';
 import { DEFAULT_COMBAT_TIME_LIMIT_MS } from '@combat/engine/constants';
 import { HEALTH_PER_POINT, STAR_MULTIPLIERS, toCombatStats } from '@combat/units/stats';
@@ -86,6 +88,22 @@ const EFFECT_DESCRIPTIONS: Readonly<Record<EffectType, { description: string; fi
       placementRange: 'inteiro ≥ 1 (padrão 2): distância máxima, a partir de quem usou, até a casa do clone.',
     },
   },
+  create_terrain: {
+    description: 'Cria um terreno nas casas em torno do ponto central da habilidade (definido por cast.target). Por um tempo, quem passa ou fica em cima recebe um estado, que continua por lingerSeconds depois de sair. Cada personagem em campo mantém no máximo maximumPerOwner terrenos de mesmo nome: ao criar mais um, o mais antigo some. O mesmo estado vindo de dois terrenos não soma.',
+    fields: {
+      name: 'texto: nome do terreno.',
+      affects: '(opcional, padrão enemies) enemies | allies | everyone, em relação a quem criou.',
+      status: `um destes estados: ${TERRAIN_STATUS_KINDS.join(' | ')}.`,
+      value: 'intensidade, como no efeito status (no poison, dano por pulso em fração do dano do personagem).',
+      tickSeconds: 'intervalo do pulso em segundos (obrigatório em poison).',
+      lingerSeconds: '(opcional, padrão 1; mínimo 0,5) quanto o estado ainda vale depois de sair do terreno.',
+      radius: '(opcional, padrão 0) 0 a 2 casas em torno do ponto central: 0 = 1 casa, 1 = 7, 2 = 19.',
+      durationSeconds: 'número > 0: tempo que o terreno fica no chão.',
+      maximumPerOwner: '(opcional, padrão 2) 1 a 6 terrenos por personagem ao mesmo tempo.',
+      color: 'cor das casas, no formato #rrggbb.',
+      icon: '(opcional) letra ou emoji desenhado na casa central.',
+    },
+  },
   registered: {
     description: 'Comportamento especial com código próprio (ver "comportamentosEspeciais"). Os que atuam continuamente usam activation "passive".',
     fields: { behavior: 'objeto com "id" e os parâmetros daquele comportamento.' },
@@ -117,11 +135,12 @@ const EXAMPLE_ATTACK_RANGE = 3;
 
 function basicAttackReference(): Record<string, unknown> {
   return {
-    campo: 'attack (opcional): { shape, maxTargets, splashDamageFraction }. Sem ele, o personagem ataca em círculo, um inimigo por golpe.',
+    campo: 'attack (opcional): { shape, maxTargets, splashDamageFraction, poisonOnHit }. Sem ele, o personagem ataca em círculo, um inimigo por golpe.',
     orientacao: 'O ataque se vira para o alvo, para a esquerda ou para a direita do tabuleiro; o comprimento da área é o alcance dos atributos.',
     formatos: Object.fromEntries(ATTACK_SHAPES.map((shape) => [shape, { nome: attackShapeLabel(shape), descricao: describeAttackArea(shape, EXAMPLE_ATTACK_RANGE) }])),
     maxTargets: 'inteiro de 1 a 6: quantos inimigos dentro da área cada golpe acerta (o alvo é o primeiro).',
     splashDamageFraction: 'de 0 a 1: fração do dano que cada inimigo além do alvo recebe.',
+    poisonOnHit: '(opcional) chance de veneno no ataque comum: { chance (maior que 0, até 1), damageFraction (padrão 0.2: dano por pulso em fração do dano do personagem), tickSeconds (padrão 1), durationSeconds (padrão 3) }. Venenos não somam: vale o de maior dano por segundo.',
     padrao: DEFAULT_ATTACK,
     jsonSchema: z.toJSONSchema(attackSchema),
   };
@@ -133,7 +152,43 @@ function boardAndMatchReference(content: GameContent): Record<string, unknown> {
     tabuleiro: `Deitado na tela: ${BOARD_ROWS} casas de comprimento (${BOARD_ROWS / 2} por lado) por ${BOARD_COLUMNS} de largura.`,
     tempoLimiteDoCombate: `${DEFAULT_COMBAT_TIME_LIMIT_MS / 1000} segundos (modificadores de sala podem aumentar).`,
     loja: `${shop.offerSize} ofertas por vez; reserva com ${rounds.benchSize} vagas.`,
-    torre: `Custa ${tower.cost} moedas e rende ${tower.incomePerRound} por rodada enquanto está de pé no tabuleiro. Se for destruída, some e paga ${tower.compensationOnLoss} moedas uma única vez, no início da rodada seguinte.`,
+    torre: `A básica custa ${tower.cost} moedas e rende ${tower.incomePerRound} por rodada enquanto está de pé no tabuleiro. Se for destruída, some e paga ${tower.compensationOnLoss} moedas uma única vez, no início da rodada seguinte. Há também as torres personalizadas (ver "torres").`,
+  };
+}
+
+function mapReference(content: GameContent): Record<string, unknown> {
+  return {
+    descricao: 'Só a aparência do tabuleiro e do fundo; não mudam regras. Edite na aba "Mapas", que mostra a prévia. Os liberados ("active") podem ser escolhidos por quem cria a sala e entram no sorteio; é preciso ao menos um liberado. A partida contra bots no navegador usa os mapas que vêm com o jogo.',
+    limites: `Até ${MAXIMUM_MAPS} mapas.`,
+    casas: 'tiles: { left (cor da metade do seu time), right (metade do adversário), variation (0 a 0,35: diferença de tom entre as casas) }.',
+    fundos: {
+      color: '{ type: "color", color }',
+      gradient: '{ type: "gradient", from, to, direction: vertical | horizontal | radial }',
+      texture: `{ type: "texture", texture: ${MAP_TEXTURES.join(' | ')}, color (base), detail (desenhos) }`,
+      image: `{ type: "image", path (gerado pelo envio no painel), darken (0 a 0,85) }: PNG até ${MAXIMUM_SPRITE_BYTES / 1024 / 1024} MB e ${MAXIMUM_SPRITE_DIMENSION}×${MAXIMUM_SPRITE_DIMENSION}; recomendado 1024×576.`,
+    },
+    jsonSchema: z.toJSONSchema(mapSchema),
+    atuais: structuredClone(content.maps),
+  };
+}
+
+function towerReference(content: GameContent): Record<string, unknown> {
+  return {
+    descricao:
+      'Estruturas compradas na loja: não atacam, não ocupam vaga de lutador, podem ser destruídas (e então somem). Ficam em config.tower: os campos soltos descrevem a torre básica e "variants" são as personalizadas. Edite na aba "Torres e minions" ou no JSON da aba "Configuração".',
+    regrasDaLoja: 'offerChancePercent: chance de cada vaga sorteada virar torre; havendo várias ativas, o tipo é sorteado com a mesma chance. maximumOwned: máximo de torres, somando todos os tipos.',
+    propriedades: {
+      cost: 'inteiro ≥ 1: preço na loja.',
+      health: '1 a 10 (mesma escala de vida dos personagens).',
+      incomePerRound: 'inteiro ≥ 0: moedas por rodada de pé no tabuleiro.',
+      compensationOnLoss: '(padrão 2) moedas pagas uma vez se a torre for destruída.',
+      buffs: '(opcional, até 4) bônus aos lutadores do time: { radius (opcional, 1 a 12 casas; sem ele, o time inteiro), effect (um bônus de sinergia: ver "sinergias.tiposDeBonus") }. Calculados no começo do combate, pela posição no tabuleiro.',
+      color: '(opcional) #rrggbb do desenho provisório.',
+      description: '(opcional) frase de apresentação; regras e bônus são descritos sozinhos.',
+    },
+    soNasPersonalizadas: 'id (começa com "torre_"), name (diferente das outras) e active (se aparece na loja). Até 8.',
+    jsonSchemaDeUmaPersonalizada: z.toJSONSchema(towerVariantSchema),
+    atuais: structuredClone(content.config.tower),
   };
 }
 
@@ -141,7 +196,7 @@ function auxiliarySpriteReference(content: GameContent): Record<string, unknown>
   return {
     descricao: 'Sprites do que não é personagem: a torre, as invocações e os clones. A chave vem do nome da invocação (sem acentos, minúsculas).',
     comoEnviar: 'Pela aba "Sprites e ícones" do painel. Sem sprite, o jogo usa o desenho provisório.',
-    chavesDoConteudoAtual: auxiliarySpriteSlotsOf(content.characters),
+    chavesDoConteudoAtual: auxiliarySpriteSlotsOf(content.characters, content.config.tower.variants),
   };
 }
 
@@ -168,7 +223,7 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
     versao: 1,
     geradoEm: generatedAt.toISOString(),
     resumo:
-      'Referência do que dá para criar no Merge do Escritório (personagens e sinergias) e do que cada parte faz. Para criar um personagem, escreva um JSON no formato de "personagem.jsonSchema" (veja "exemplos") e cole em Importar personagens; para uma sinergia, use "sinergias.jsonSchema" e Importar sinergias, no painel de administração.',
+      'Referência do que dá para criar no Merge do Escritório (personagens, sinergias, torres e mapas) e do que cada parte faz. Para criar um personagem, escreva um JSON no formato de "personagem.jsonSchema" (veja "exemplos") e cole em Importar personagens; para uma sinergia, use "sinergias.jsonSchema" e Importar sinergias, no painel de administração.',
     comoCriarUmPersonagem: [
       '1. Copie um dos "exemplos.personagens" ou o "exemplos.modeloMinimo" e mude os valores (o "id" só aceita letras minúsculas, números e "_", e não pode repetir nem ser "torre").',
       '2. No painel (aba Personagens), abra "Importar personagens (JSON)", cole o texto e importe. Aceita um personagem, uma lista deles ou { "characters": [ ... ] }.',
@@ -258,8 +313,8 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
       jsonSchema: z.toJSONSchema(synergySchema),
       tiposDeBonus: {
         attribute_multiplier: {
-          descricao: 'Multiplica o dano ou a velocidade de ataque (os multiplicadores de várias sinergias se multiplicam).',
-          campos: 'attribute: damage | attackSpeed; value > 0 (1.06 = +6%).',
+          descricao: 'Multiplica a vida máxima, o dano ou a velocidade de ataque (os multiplicadores de várias fontes se multiplicam).',
+          campos: 'attribute: health | damage | attackSpeed; value > 0 (1.06 = +6%).',
           exemplo: newSynergyEffect('attribute_multiplier'),
         },
         resistance_bonus: {
@@ -313,12 +368,17 @@ export function buildReferenceGuide(content: GameContent, generatedAt: Date = ne
     sprite: {
       formato: `PNG com fundo transparente, até ${MAXIMUM_SPRITE_BYTES / 1024 / 1024} MB e ${MAXIMUM_SPRITE_DIMENSION}×${MAXIMUM_SPRITE_DIMENSION} pixels.`,
       comoEnviar: 'Pelo painel (campo Sprite do personagem). O campo "sprite" não pode ser escrito à mão no JSON importado: o caminho é gerado pelo servidor (/sprites/<id>-<hash>.png).',
-      orientacao: 'A arte deve ser de perfil, olhando para a DIREITA; o jogo a espelha para a esquerda.',
+      orientacao: 'A arte deve ser de perfil, olhando para a DIREITA; o jogo a espelha para a esquerda. Arte desenhada olhando para a esquerda: use "Espelhar a imagem" no painel (sprite.mirrored: true).',
       ajustes: 'scale (multiplica o tamanho padrão; a altura da imagem é ajustada à do personagem provisório), offsetX/offsetY (pixels), anchorX/anchorY (0–1: ponto da imagem sobre os pés; padrão 0.5 e 1). A aba "Sprites e ícones" mostra a prévia ao vivo.',
+    },
+    torres: towerReference(content),
+    mapas: mapReference(content),
+    publicacao: {
+      notas: 'Ao publicar, o painel pergunta se a mudança leva nota de atualização. Com nota (título e uma mudança por linha, rascunhada a partir do que mudou), ela aparece em "Novidades" no jogo, junto das atualizações do próprio jogo. Sem nota, a publicação é silenciosa. A aba "Notas" lista e apaga as publicadas.',
     },
     spritesAuxiliares: auxiliarySpriteReference(content),
     limites: [
-      'O id é fixo depois de criado e não pode ser "torre" (reservado).',
+      'O id é fixo depois de criado e não pode ser "torre" nem começar com "torre_" (reservados).',
       'Personagem ativo precisa estar na distribuição de sinergias; cada sinergia precisa de pelo menos 4 personagens.',
       'Toda habilidade precisa de ao menos um efeito.',
       'Veneno e drenagem exigem tickSeconds; estados com intensidade exigem value (exceto sleep e resting).',

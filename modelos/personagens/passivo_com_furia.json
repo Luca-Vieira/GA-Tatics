@@ -1,0 +1,21 @@
+{
+  "id": "modelo_furia",
+  "name": "Modelo Fúria",
+  "archetype": "Berserker",
+  "description": "Quanto menos vida, mais rápido bate.",
+  "category": "melee",
+  "rarity": "common",
+  "active": false,
+  "stats": { "health": 6, "damage": 5, "attackSpeed": 3, "range": 1, "mobility": 5 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "attack": { "shape": "scythe", "maxTargets": 2, "splashDamageFraction": 0.5 },
+  "ability": {
+    "id": "modelo_pressao",
+    "name": "Prazo estourando",
+    "description": "Passiva: ataca mais rápido conforme perde vida e, no fim, bate mais forte.",
+    "activation": { "type": "passive" },
+    "cooldownSeconds": 0,
+    "effects": [{ "type": "registered", "behavior": { "id": "missing_health_haste", "maxAttackSpeedBonus": 0.8, "furyBelowFraction": 0.3, "furyDamageBonus": 0.2 } }],
+    "visual": { "kind": "aura", "color": "#ef4444", "icon": "🔥" }
+  }
+}

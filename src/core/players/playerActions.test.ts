@@ -20,7 +20,7 @@ describe('compra', () => {
   it('custa 3 moedas para comum e 4 para raro e especial', () => {
     const player = makePlayer();
     player.coins = 100;
-    offerShop(player, 'bixo', 'helder', 'joao_lucas');
+    offerShop(player, 'bixo', 'wender', 'joao_lucas');
     buyFromShop(player, makeContext(), 0);
     buyFromShop(player, makeContext(), 1);
     buyFromShop(player, makeContext(), 2);

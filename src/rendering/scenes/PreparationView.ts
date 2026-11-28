@@ -3,7 +3,7 @@ import type { OwnedUnit, PlayerState, UnitLocation } from '@core/players/playerS
 import { BOARD_CELLS, isInsideBoard, mirrorCell, sideOfCell } from '@shared/constants/board';
 import { attackAreaCells, defaultFacingOf, type AttackShape } from '@shared/utils/attackArea';
 import type { BoardProjection } from '@shared/utils/boardProjection';
-import type { Hex, Point } from '@shared/utils/hex';
+import { hexDistance, type Hex, type Point } from '@shared/utils/hex';
 import { SIDE_COLORS, drawCellOutline } from '../board/boardLayout';
 import { pointerPosition } from '../display/hiDpiCamera';
 import type { Rectangle } from '../layout/gameLayout';
@@ -17,7 +17,9 @@ export interface UnitAppearance {
   /** Alcance de ataque em casas; 0 = não ataca (não mostra área de ataque). */
   readonly range: number;
   readonly attackShape: AttackShape;
-  /** Cor da sinergia vigente, desenhada como anel no chão. */
+  /** Torre com bônus por alcance: o maior alcance, para mostrar quais casas ela ajuda. 0 = nada a mostrar. */
+  readonly buffRadius: number;
+  /** Cor do anel no chão: a da sinergia vigente ou, nas torres, a do tipo de torre. */
   readonly accentColor: number;
   /** Sprite do personagem, se o servidor tiver um. */
   readonly sprite?: SpriteAppearance;
@@ -64,6 +66,7 @@ interface DragState {
 
 /** Com o dedo, um toque costuma "tremer" um pouco; abaixo disso não é arrasto. */
 const DRAG_THRESHOLD_PIXELS = 10;
+const BUFF_REACH_COLOR = 0x4ade80;
 const RANGE_COLOR = 0xfde047;
 const BENCH_FEET_OFFSET = 14;
 const MELEE_BODY_SCALE = 1.05;
@@ -412,7 +415,14 @@ export class PreparationView {
   private refreshRangeOverlay(): void {
     this.rangeGraphics.clear();
     const target = this.rangeTarget();
-    if (!target || target.appearance.range < 1) {
+    if (!target) {
+      return;
+    }
+    if (target.appearance.buffRadius > 0) {
+      this.drawBuffReach(target.center, target.appearance.buffRadius);
+      return;
+    }
+    if (target.appearance.range < 1) {
       return;
     }
     const cells = attackAreaCells(target.center, target.appearance.attackShape, target.appearance.range, defaultFacingOf('B'));
@@ -420,6 +430,14 @@ export class PreparationView {
       drawCellOutline(this.rangeGraphics, this.options.projection, cell, RANGE_COLOR, 0.22, 2, 0.85);
     }
     drawCellOutline(this.rangeGraphics, this.options.projection, target.center, 0xffffff, 0.22, 2);
+  }
+
+  /** Casas do próprio lado que o bônus da torre alcança. */
+  private drawBuffReach(center: Hex, radius: number): void {
+    for (const cell of BOARD_CELLS.filter((candidate) => sideOfCell(candidate) === 'B' && hexDistance(center, candidate) <= radius)) {
+      drawCellOutline(this.rangeGraphics, this.options.projection, cell, BUFF_REACH_COLOR, 0.2, 2, 0.85);
+    }
+    drawCellOutline(this.rangeGraphics, this.options.projection, center, 0xffffff, 0.22, 2);
   }
 
   /** Casa central (já na orientação da tela) e aparência da unidade cuja área deve aparecer. */

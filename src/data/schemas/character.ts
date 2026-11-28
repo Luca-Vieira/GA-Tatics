@@ -30,6 +30,8 @@ export const spriteDefinitionSchema = z.strictObject({
   /** Ponto de ancoragem (0 a 1); os pés ficam em (0,5, 1). */
   anchorX: z.number().min(0).max(1).default(0.5),
   anchorY: z.number().min(0).max(1).default(1),
+  /** Espelha o arquivo na horizontal, para arte desenhada olhando para a esquerda. Os ajustes valem sobre a imagem já espelhada. */
+  mirrored: z.boolean().optional(),
 });
 export type SpriteDefinition = z.infer<typeof spriteDefinitionSchema>;
 

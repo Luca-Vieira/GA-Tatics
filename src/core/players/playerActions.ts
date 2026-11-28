@@ -6,7 +6,7 @@ import type { SeededRandom } from '@shared/utils/random';
 import { fuseAll, wouldCompleteFusion, type FusionResult } from '../fusion/fusion';
 import { unitLimitForRound } from '../rounds/rounds';
 import { rollShopOffer, sellValueOf } from '../shop/shop';
-import { TOWER_ID, boardFightersOf, countOwnedTowers, isTowerId } from '../tower/tower';
+import { boardFightersOf, countOwnedTowers, isTowerId, offeredTowersOf, type TowerDefinition } from '../tower/tower';
 import { benchUnitsOf, boardUnitsOf, isAlive, type OwnedUnit, type PlayerState, type UnitLocation } from './playerState';
 
 /** Tudo de que as ações de um jogador precisam saber do jogo em andamento. */
@@ -31,6 +31,7 @@ export type ActionFailure =
   | 'invalid_destination'
   | 'board_full'
   | 'tower_limit'
+  | 'player_not_in_combat'
   | 'spectator';
 
 export type ActionResult = { readonly ok: true; readonly fusions: readonly FusionResult[] } | { readonly ok: false; readonly reason: ActionFailure };
@@ -58,20 +59,28 @@ export function refillShop(player: PlayerState, context: ActionContext): void {
     if (keptOffer) {
       return keptOffer;
     }
-    if (rollsTowerOffer(context) && towersAround < context.config.tower.maximumOwned) {
+    const tower = rollTowerOffer(context);
+    if (tower && towersAround < context.config.tower.maximumOwned) {
       towersAround++;
-      return { characterId: TOWER_ID, cost: context.config.tower.cost };
+      return { characterId: tower.id, cost: tower.cost };
     }
     return rolledOffer;
   });
 }
 
-/** Sempre gasta um sorteio por vaga (quando há sorteio de torres), para a sequência ser a mesma qualquer que seja o resultado. */
-function rollsTowerOffer(context: ActionContext): boolean {
+/**
+ * A torre que a vaga virou, se virou. Sempre gasta um sorteio por vaga (quando há sorteio de torres), para a sequência ser
+ * a mesma qualquer que seja o resultado; o sorteio do tipo só acontece quando há mais de um na loja.
+ */
+function rollTowerOffer(context: ActionContext): TowerDefinition | null {
   if (!context.towerRandom) {
-    return false;
+    return null;
   }
-  return context.towerRandom.next() * 100 < context.config.tower.offerChancePercent;
+  if (context.towerRandom.next() * 100 >= context.config.tower.offerChancePercent) {
+    return null;
+  }
+  const offered = offeredTowersOf(context.config.tower);
+  return offered.length > 1 ? context.towerRandom.pick(offered) : offered[0]!;
 }
 
 /** Congela ou descongela uma oferta (de graça). */

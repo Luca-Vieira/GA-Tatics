@@ -1,4 +1,6 @@
 import { validateGameContent, type GameContent } from '@data/schemas/content';
+import type { PatchNote, PatchNoteInput } from '@data/schemas/patchNote';
+import { fetchPublicData } from '@multiplayer/client/publicContent';
 import type { LiveActivity } from '@multiplayer/host/liveActivities';
 
 export interface PublishedContent {
@@ -74,8 +76,9 @@ export class AdminClient {
     return { version: body.version, content: validation.content };
   }
 
-  async publish(baseVersion: number, content: GameContent): Promise<PublishResult> {
-    const response = await this.send('PUT', '/api/admin/content', { baseVersion, content });
+  /** Sem `note`, publica em silêncio (sem entrada nas "Novidades" do jogo). */
+  async publish(baseVersion: number, content: GameContent, note?: PatchNoteInput): Promise<PublishResult> {
+    const response = await this.send('PUT', '/api/admin/content', { baseVersion, content, ...(note ? { note } : {}) });
     const body = (await response.json().catch(() => ({}))) as { version?: unknown; error?: string; details?: { issues?: string[] } };
     if (response.status === 200 && typeof body.version === 'number') {
       return { ok: true, version: body.version };
@@ -91,6 +94,31 @@ export class AdminClient {
       return { ok: false, kind: 'invalid', message: 'O servidor recusou o conteúdo.', issues: body.details?.issues ?? [] };
     }
     return { ok: false, kind: 'failed', message: `O servidor não aceitou a publicação (${response.status}).`, issues: [] };
+  }
+
+  /**
+   * As notas publicadas, pela mesma rota pública que o jogo usa. O pedido vai sem o token: a rota não pede login, e um
+   * cabeçalho a mais faria o navegador exigir uma liberação (CORS) que ela não oferece.
+   */
+  async fetchPatchNotes(): Promise<readonly PatchNote[]> {
+    const published = await fetchPublicData(this.baseUrl, undefined, this.fetcher);
+    if (!published) {
+      throw new AdminRequestError('Não foi possível ler as notas. Confira se o servidor está ligado e atualizado.', 'failed');
+    }
+    return published.patchNotes;
+  }
+
+  /** Apaga uma nota publicada. Devolve falso se ela já não existia. */
+  async deletePatchNote(noteId: string): Promise<boolean> {
+    const response = await this.send('POST', `/api/admin/notes/${encodeURIComponent(noteId)}/delete`, undefined);
+    if (response.status === 200 || response.status === 404) {
+      return response.status === 200;
+    }
+    if (response.status === 401) {
+      this.token = null;
+      throw new AdminRequestError('A sessão expirou. Entre de novo.', 'unauthorized');
+    }
+    throw new AdminRequestError(`O servidor não apagou a nota (${response.status}).`, 'failed');
   }
 
   /** Salas em espera ou em jogo no servidor. */

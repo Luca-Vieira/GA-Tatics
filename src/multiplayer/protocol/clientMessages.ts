@@ -52,6 +52,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     /** Senha opcional (vale para sala pública ou privada). */
     password: roomPasswordSchema.optional(),
     modifiers: roomModifiersSchema.default(NO_ROOM_MODIFIERS),
+    /** Mapa escolhido por quem cria; sem ele, cada partida sorteia um dos liberados. */
+    mapId: z.string().min(1).max(30).optional(),
     /** Total de jogadores da partida; as vagas sem pessoa viram bots. */
     maximumPlayers: z.number().int().min(MINIMUM_PLAYERS).max(MAXIMUM_PLAYERS).default(DEFAULT_PLAYERS_PER_ROOM),
   }),

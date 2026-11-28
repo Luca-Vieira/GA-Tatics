@@ -1,6 +1,7 @@
 import { DEFAULT_GAME_CONTENT } from '@data/defaults/content';
 import type { CharacterDefinition } from '@data/schemas/character';
 import { Game } from '@core/game/Game';
+import { pickMap } from '@core/maps/pickMap';
 import { rotationIndexAt, synergyMappingForIndex } from '@core/synergies/rotation';
 import type { ContentSnapshot } from '../host/contentStore';
 import type { GameActionMessage } from '../protocol/clientMessages';
@@ -37,6 +38,8 @@ export interface RoomSettings {
   /** Senha em texto, só para criar o resumo; a sala não a guarda. */
   readonly password?: string;
   readonly modifiers: RoomModifiers;
+  /** Mapa escolhido por quem criou a sala; sem ele, cada partida sorteia um. */
+  readonly mapId?: string;
   /** Total de jogadores da partida (pessoas e bots); sem ele, vale o tamanho padrão. */
   readonly maximumPlayers?: number;
 }
@@ -64,6 +67,7 @@ export class Room {
   readonly visibility: RoomVisibility;
   readonly modifiers: RoomModifiers;
   readonly maximumPlayers: number;
+  readonly mapId: string | null;
   private readonly password: RoomPassword | null;
 
   constructor(code: string, dependencies: RoomDependencies, settings: RoomSettings = DEFAULT_ROOM_SETTINGS) {
@@ -71,6 +75,7 @@ export class Room {
     this.dependencies = dependencies;
     this.visibility = settings.visibility;
     this.modifiers = settings.modifiers;
+    this.mapId = settings.mapId ?? null;
     this.maximumPlayers = settings.maximumPlayers ?? DEFAULT_PLAYERS_PER_ROOM;
     this.password = settings.password ? RoomPassword.create(settings.password) : null;
   }
@@ -120,6 +125,7 @@ export class Room {
       hasPassword: this.hasPassword,
       status: this.status,
       modifiers: this.modifiers,
+      mapId: this.mapId,
       spectatorCount: this.spectatorIds.size,
       canBeWatched: this.canBeWatched,
     };
@@ -166,11 +172,17 @@ export class Room {
     return { ok: true, value: undefined };
   }
 
+  /** Serve à plateia e aos jogadores da partida (que veem a luta dos outros; os eliminados acompanham quem quiserem). */
   watchPlayer(connectionId: string, playerId: string): RoomResult {
-    if (!this.spectatorIds.has(connectionId) || !this.match) {
+    if (!this.match) {
       return { ok: false, code: 'not_spectating' };
     }
-    return this.match.watch(connectionId, playerId) ? { ok: true, value: undefined } : { ok: false, code: 'unknown_player' };
+    const member = this.members.find((candidate) => candidate.connectionId === connectionId && candidate.connected);
+    if (!member && !this.spectatorIds.has(connectionId)) {
+      return { ok: false, code: 'not_spectating' };
+    }
+    const wasFound = member ? this.match.watchAsPlayer(member.playerId, playerId) : this.match.watch(connectionId, playerId);
+    return wasFound ? { ok: true, value: undefined } : { ok: false, code: 'unknown_player' };
   }
 
   /** Remove quem saiu. Durante a partida, o bot assume o lugar; no saguão, a vaga some e o anfitrião passa ao próximo. */
@@ -211,8 +223,10 @@ export class Room {
     }
     this.status = 'playing';
     const snapshot = this.dependencies.getContent?.() ?? { version: 0, content: DEFAULT_GAME_CONTENT };
+    const seed = this.dependencies.createMatchSeed();
     this.match = new MatchController({
-      game: this.createGame(snapshot),
+      game: this.createGame(snapshot, seed),
+      mapId: pickMap(snapshot.content.maps, this.mapId, seed).id,
       humanIds: this.members.map((member) => member.playerId),
       scheduler: this.dependencies.scheduler,
       send: (playerId, message) => this.sendToPlayer(playerId, message),
@@ -252,7 +266,7 @@ export class Room {
 
   // --- Apoio --------------------------------------------------------------------------------------
 
-  private createGame(snapshot: ContentSnapshot): Game {
+  private createGame(snapshot: ContentSnapshot, seed: string): Game {
     const { content } = snapshot;
     const humans = this.members.map((member) => ({ id: member.playerId, name: member.name, isBot: false }));
     // Os bots ocupam os lugares que ninguém pegou (quem saiu do saguão pode ter deixado um buraco no meio).
@@ -260,7 +274,7 @@ export class Room {
     const rotationIndex = rotationIndexAt(this.dependencies.scheduler.nowMs(), content.rotation);
     const synergyIds = content.synergies.map((synergy) => synergy.id);
     return new Game({
-      seed: this.dependencies.createMatchSeed(),
+      seed,
       roster: this.dependencies.roster ?? content.characters,
       players: [...humans, ...bots],
       config: applyRoomModifiers(content.config, this.modifiers),
@@ -313,6 +327,7 @@ export class Room {
         hasPassword: this.hasPassword,
         modifiers: this.modifiers,
         maximumPlayers: this.maximumPlayers,
+        mapId: this.mapId,
       }),
     );
   }

@@ -4,7 +4,7 @@
   "archetype": "Curandeiro",
   "description": "Suporte. A presença dele recupera quem está por perto.",
   "category": "support",
-  "rarity": "rare",
+  "rarity": "common",
   "stats": { "health": 5.5, "damage": 3, "attackSpeed": 4, "range": 3, "mobility": 4 },
   "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 2 },
   "ability": {

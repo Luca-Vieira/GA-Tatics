@@ -15,6 +15,7 @@ export function createCombatUnit(spec: UnitSpec): CombatUnit {
   const baseCombatStats = toCombatStats(spec.stats, starLevel, starMultipliers);
   const stats = {
     ...baseCombatStats,
+    maxHealth: baseCombatStats.maxHealth * bonuses.maxHealthMultiplier,
     damage: baseCombatStats.damage * bonuses.damageMultiplier,
     attacksPerSecond: baseCombatStats.attacksPerSecond * bonuses.attackSpeedMultiplier,
   };
@@ -27,7 +28,8 @@ export function createCombatUnit(spec: UnitSpec): CombatUnit {
     behavior: spec.behavior ?? DEFAULT_BEHAVIOR,
     ability: spec.ability ?? null,
     attack: spec.attack ?? DEFAULT_ATTACK,
-    auxiliarySpriteKey: spec.isStructure ? auxiliarySpriteKeyOf(spec.name) : null,
+    // Cada tipo de torre tem o próprio sprite, guardado com o id dela.
+    auxiliarySpriteKey: spec.isStructure ? (spec.characterId ?? auxiliarySpriteKeyOf(spec.name)) : null,
     starLevel,
     starMultiplier: starMultipliers[starLevel],
     cell: spec.cell,

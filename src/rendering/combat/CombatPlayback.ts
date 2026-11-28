@@ -13,10 +13,12 @@ import { SIDE_COLORS, drawCellOutline } from '../board/boardLayout';
 import { createTrapMarker, playAbilityVisual, showAbilityName } from '../particles/abilityEffects';
 import { playAttackShape } from '../particles/attackShapeEffects';
 import { PROJECTILE_FLIGHT_MS, shootProjectile, type ProjectileLook } from '../particles/projectile';
+import { createTerrainPatch, removeTerrainPatch } from '../particles/terrainPatch';
 import { destroyTransientEffects } from '../particles/transient';
 import type { SpriteAppearance } from '../sprites/spriteRegistry';
 import { UnitView } from '../sprites/UnitView';
 import { isFacingScreenRight } from './combatOrientation';
+import { damageSoundOf, immediateSoundOf } from './combatSounds';
 
 const MAXIMUM_FRAME_DELTA_MS = 100;
 const MELEE_HIT_DELAY_MS = 90;
@@ -52,6 +54,7 @@ export class CombatPlayback {
   private readonly unitViews = new Map<string, UnitView>();
   private readonly unitsById = new Map<string, Readonly<CombatUnit>>();
   private readonly trapMarkers = new Map<string, Phaser.GameObjects.Container>();
+  private readonly terrainPatches = new Map<string, Phaser.GameObjects.Container>();
   private readonly timers: Phaser.Time.TimerEvent[] = [];
   private readonly projection: BoardProjection;
   /** O tabuleiro está girado: o lado A aparece à esquerda. */
@@ -121,6 +124,8 @@ export class CombatPlayback {
     this.unitViews.clear();
     this.trapMarkers.forEach((marker) => marker.destroy());
     this.trapMarkers.clear();
+    this.terrainPatches.forEach((patch) => patch.destroy());
+    this.terrainPatches.clear();
     this.selectionArea.destroy();
     destroyTransientEffects(this.scene);
   }
@@ -241,6 +246,10 @@ export class CombatPlayback {
   }
 
   private applySilently(event: CombatEvent): void {
+    if (event.type === 'terrain') {
+      this.playTerrain(event);
+      return;
+    }
     if (event.type !== 'trap') {
       return;
     }
@@ -259,6 +268,10 @@ export class CombatPlayback {
   }
 
   private playEvent(event: CombatEvent): void {
+    const sound = immediateSoundOf(event);
+    if (sound) {
+      this.playSound(sound);
+    }
     switch (event.type) {
       case 'move':
         this.unitViews.get(event.unitId)?.moveTo(this.projection.cellToGround(event.to), event.durationMs, this.simulation.timeMs);
@@ -294,6 +307,9 @@ export class CombatPlayback {
       case 'trap':
         this.playTrap(event);
         return;
+      case 'terrain':
+        this.playTerrain(event);
+        return;
     }
   }
 
@@ -309,10 +325,19 @@ export class CombatPlayback {
     attackerView.setFacingRight(facingRight);
     attackerView.playAttack(this.projection.cellToGround(target.cell));
     playAttackShape(this.scene, this.projection, { shape: event.shape, origin: event.origin, areaCells: event.areaCells, facingRight, color: this.colorOfSide(attacker.side) });
-    this.playSound('attack');
+    this.playSound(event.isRanged ? 'shot' : 'attack');
 
     const healthRatio = event.targetHealthAfter / target.stats.maxHealth;
-    const hit = event.missed ? () => targetView.showFloatingText('Errou', '#cbd5e1') : () => targetView.playHit(event.damage, healthRatio);
+    // O som do impacto toca junto com a animação dele (depois do avanço ou do voo do projétil).
+    const hit = () => {
+      if (event.missed) {
+        this.playSound('miss');
+        targetView.showFloatingText('Errou', '#cbd5e1');
+        return;
+      }
+      this.playSound(event.isRanged ? 'ranged_hit' : 'hit');
+      targetView.playHit(event.damage, healthRatio);
+    };
     if (!event.isRanged) {
       this.later(MELEE_HIT_DELAY_MS, hit);
       return;
@@ -339,14 +364,17 @@ export class CombatPlayback {
     const healthRatio = this.healthRatioOf(event.targetId, event.healthAfter);
     const color = DAMAGE_COLORS[event.cause];
     if (event.cause === 'ability' || event.cause === 'splash') {
-      this.later(MELEE_HIT_DELAY_MS, () => targetView?.playHit(event.amount, healthRatio, color));
+      this.later(MELEE_HIT_DELAY_MS, () => {
+        this.playSound(damageSoundOf(event.cause));
+        targetView?.playHit(event.amount, healthRatio, color);
+      });
       return;
     }
+    this.playSound(damageSoundOf(event.cause));
     targetView?.playDamageOverTime(event.amount, healthRatio, color);
   }
 
   private playAbility(event: Extract<CombatEvent, { type: 'ability' }>): void {
-    this.playSound('ability');
     playAbilityVisual(this.scene, this.projection, event.visual, this.projection.cellToGround(event.center), event.radius);
     const casterView = this.unitViews.get(event.casterId);
     if (!casterView) {
@@ -354,6 +382,19 @@ export class CombatPlayback {
     }
     casterView.setFacingRight(isFacingScreenRight(event.facing, this.isViewedFromSideA));
     showAbilityName(this.scene, event.abilityName, { x: casterView.groundPosition.x, y: casterView.chestPosition.y - 60 }, event.visual.color, event.visual.icon);
+  }
+
+  private playTerrain(event: Extract<CombatEvent, { type: 'terrain' }>): void {
+    if (event.change === 'placed') {
+      const patch = createTerrainPatch(this.scene, this.projection, { ...event, sideColor: this.colorOfSide(event.side) });
+      this.terrainPatches.set(event.terrainId, patch);
+      return;
+    }
+    const patch = this.terrainPatches.get(event.terrainId);
+    this.terrainPatches.delete(event.terrainId);
+    if (patch) {
+      removeTerrainPatch(this.scene, patch);
+    }
   }
 
   private playTrap(event: Extract<CombatEvent, { type: 'trap' }>): void {

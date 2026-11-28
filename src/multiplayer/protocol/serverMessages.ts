@@ -7,7 +7,7 @@ import type { UnitLocation } from '@core/players/playerState';
 
 /** Mensagens que o servidor envia aos clientes. Só dados simples (JSON): nada de funções nem de referências internas. */
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type RoomStatus = 'lobby' | 'playing';
 export type RoomVisibility = 'public' | 'private';
@@ -21,6 +21,8 @@ export interface RoomSummaryView {
   readonly hasPassword: boolean;
   readonly status: RoomStatus;
   readonly modifiers: RoomModifiers;
+  /** Mapa escolhido pelo anfitrião; `null` = sorteado a cada partida. */
+  readonly mapId: string | null;
   readonly spectatorCount: number;
   /** Há partida em andamento e ainda cabe mais um espectador. */
   readonly canBeWatched: boolean;
@@ -88,6 +90,8 @@ export interface MatchSetupView {
   readonly rotationIndex: number;
   /** Regras especiais da sala (vidas, tempos, renda e status extras). */
   readonly modifiers: RoomModifiers;
+  /** Mapa desta partida (um dos mapas do conteúdo). */
+  readonly mapId: string;
   /** Versão do conteúdo com que a partida foi criada; se for diferente da do cliente, ele precisa recarregar a página. */
   readonly contentVersion: number;
 }
@@ -107,6 +111,7 @@ export type ServerMessage =
       readonly hasPassword: boolean;
       readonly modifiers: RoomModifiers;
       readonly maximumPlayers: number;
+      readonly mapId: string | null;
     }
   /** Resposta a `list_rooms`: só as salas públicas. */
   | { readonly type: 'room_list'; readonly rooms: readonly RoomSummaryView[] }
@@ -115,8 +120,15 @@ export type ServerMessage =
   | ({ readonly type: 'match_started' } & MatchSetupView)
   /** Resposta a `spectate_room`: a pessoa passou a assistir (sem vaga na sala). */
   | ({ readonly type: 'spectate_started'; readonly roomCode: string; readonly watchedPlayerId: string } & MatchSetupView)
-  /** Resposta a `watch_player`; em seguida vem o retrato atual da partida na visão desse jogador. */
+  /**
+   * Resposta a `watch_player` para quem assiste (ou já foi eliminado); em seguida vem o retrato atual da partida na
+   * visão desse jogador. Um jogador que a recebe passa a só assistir.
+   */
   | { readonly type: 'watching'; readonly playerId: string }
+  /** Resposta a `watch_player` de quem ainda está vivo: a luta de outro jogador, que está acontecendo. */
+  | { readonly type: 'combat_peek'; readonly playerId: string; readonly duel: DuelView }
+  /** Só para jogadores eliminados, na preparação: o tabuleiro de quem estão acompanhando. */
+  | { readonly type: 'scout_board'; readonly playerId: string; readonly units: readonly UnitView[] }
   /** Alguém saiu e um bot assumiu a vaga. */
   | { readonly type: 'players_updated'; readonly players: readonly PublicPlayerView[] }
   | {
@@ -141,6 +153,7 @@ export type ServerMessage =
       readonly restingId: string | null;
       readonly eliminatedIds: readonly string[];
       readonly towersLostByPlayerId: Readonly<Record<string, number>>;
+      readonly towerCompensationByPlayerId: Readonly<Record<string, number>>;
       readonly players: readonly PublicPlayerView[];
     }
   | { readonly type: 'match_ended'; readonly winnerId: string | null; readonly standings: readonly { readonly playerId: string; readonly place: number }[] }

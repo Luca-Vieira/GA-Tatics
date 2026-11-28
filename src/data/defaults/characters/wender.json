@@ -4,7 +4,7 @@
   "archetype": "Autômato",
   "description": "Especialista resistente. Cobre a falta dos colegas.",
   "category": "bruiser",
-  "rarity": "common",
+  "rarity": "rare",
   "stats": { "health": 8, "damage": 6, "attackSpeed": 4, "range": 2, "mobility": 2 },
   "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
   "attack": { "shape": "scythe", "maxTargets": 2, "splashDamageFraction": 0.3 },

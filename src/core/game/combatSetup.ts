@@ -2,17 +2,21 @@ import type { CombatConfig } from '@combat/engine/CombatSimulation';
 import { unitSpecFromCharacter } from '@combat/units/fromCharacter';
 import type { UnitSpec } from '@combat/units/unit';
 import type { CharacterDefinition } from '@data/schemas/character';
-import type { SynergyDefinition } from '@data/schemas/synergy';
 import { mirrorCell, type BoardSide } from '@shared/constants/board';
 import { boardUnitsOf, type OwnedUnit, type PlayerState } from '../players/playerState';
-import { computeBonusesForUnit, summarizeSynergies, type SynergyMapping } from '../synergies/synergies';
+import { combineBonusEffects, summarizeSynergies, synergyEffectsFor, type SynergyMapping } from '../synergies/synergies';
 import type { CombatRules } from './roomModifiers';
 import { isTowerId } from '../tower/tower';
+import { hexDistance, type Hex } from '@shared/utils/hex';
+import type { SynergyEffect, SynergyDefinition } from '@data/schemas/synergy';
+import type { TowerBuff } from '@data/schemas/gameConfig';
 
 export interface CombatSetupContext {
   readonly charactersById: ReadonlyMap<string, CharacterDefinition>;
   readonly synergies: readonly SynergyDefinition[];
   readonly synergyMapping: SynergyMapping;
+  /** Bônus de cada tipo de torre, pelo id. */
+  readonly towerBuffsById?: ReadonlyMap<string, readonly TowerBuff[]>;
   /** Regras de combate da sala (bônus de status e limite de tempo). Sem elas, valem as regras normais. */
   readonly rules?: CombatRules;
 }
@@ -22,10 +26,22 @@ export function combatUnitId(side: BoardSide, ownedUnit: OwnedUnit): string {
   return `${side}-${ownedUnit.id}`;
 }
 
+/** Efeitos das torres do tabuleiro que alcançam uma casa (medidos no referencial do próprio jogador). */
+function towerEffectsReaching(cell: Hex, boardUnits: readonly OwnedUnit[], context: CombatSetupContext): SynergyEffect[] {
+  return boardUnits.flatMap((tower) => {
+    if (!isTowerId(tower.characterId) || tower.location.kind !== 'board') {
+      return [];
+    }
+    const towerCell = tower.location.cell;
+    const buffs = context.towerBuffsById?.get(tower.characterId) ?? [];
+    return buffs.filter((buff) => buff.radius === undefined || hexDistance(towerCell, cell) <= buff.radius).map((buff) => buff.effect);
+  });
+}
+
 /**
  * Unidades que o jogador leva ao combate. As casas do jogador ficam no referencial do lado A; quem luta como lado B
- * tem as casas espelhadas (rotação de 180°), ficando na metade de baixo. Os bônus de sinergia são calculados aqui,
- * uma única vez, a partir do que está no tabuleiro no momento em que o combate começa.
+ * tem as casas espelhadas (rotação de 180°), ficando na metade de baixo. Os bônus de sinergia e de torre são calculados
+ * aqui, uma única vez, a partir do que está no tabuleiro no momento em que o combate começa.
  */
 export function buildSideUnits(player: PlayerState, side: BoardSide, context: CombatSetupContext): UnitSpec[] {
   const boardUnits = boardUnitsOf(player);
@@ -48,7 +64,10 @@ export function buildSideUnits(player: PlayerState, side: BoardSide, context: Co
     if (isTowerId(ownedUnit.characterId)) {
       return withStatBonus({ id: combatUnitId(side, ownedUnit), name: character.name, side, cell, stats: character.stats, characterId: character.id, isStructure: true });
     }
-    const bonuses = computeBonusesForUnit(synergyStatuses, context.synergyMapping[ownedUnit.characterId]);
+    const bonuses = combineBonusEffects([
+      ...synergyEffectsFor(synergyStatuses, context.synergyMapping[ownedUnit.characterId]),
+      ...towerEffectsReaching(ownedUnit.location.cell, boardUnits, context),
+    ]);
     return withStatBonus(unitSpecFromCharacter(character, { id: combatUnitId(side, ownedUnit), side, cell, starLevel: ownedUnit.starLevel, bonuses }));
   });
 }

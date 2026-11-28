@@ -1,12 +1,14 @@
 import { DEFAULT_CHARACTERS } from '@data/defaults/characters';
+import { DEFAULT_MAPS } from '@data/defaults/maps';
+import { pickMap } from '../maps/pickMap';
 import { DEFAULT_SYNERGIES, DEFAULT_SYNERGY_ROTATION, INITIAL_SYNERGY_MAPPING } from '@data/defaults/synergies';
 import { playBotPreparation } from '../players/botStrategy';
 import type { ActionResult } from '../players/playerActions';
 import { isAlive, type UnitLocation } from '../players/playerState';
 import { rotationIndexAt, synergyMappingForIndex } from '../synergies/rotation';
 import { playMatchWithBots } from './botMatch';
-import { Game, MAXIMUM_PLAYERS, MINIMUM_PLAYERS, type GamePlayerInput } from './Game';
-import type { HumanDuel, MatchSession, SessionListener, SpriteSource } from './MatchSession';
+import { Game, MAXIMUM_PLAYERS, MINIMUM_PLAYERS, type Duel, type GamePlayerInput } from './Game';
+import type { HumanDuel, MatchScenery, MatchSession, SessionListener, SpriteSource } from './MatchSession';
 
 export const LOCAL_HUMAN_ID = 'human';
 export const DEFAULT_LOCAL_PLAYER_COUNT = 4;
@@ -22,11 +24,14 @@ export interface LocalMatchOptions {
   readonly nowMs?: number;
   /** Total de jogadores, contando o humano (de 2 a 8). */
   readonly playerCount?: number;
+  /** Mapa escolhido; sem ele, um dos que vêm com o jogo é sorteado. */
+  readonly mapId?: string;
 }
 
 const NO_LISTENER: SessionListener = {
   preparationStarted: () => undefined,
   combatStarted: () => undefined,
+  combatPeekStarted: () => undefined,
   roundConcluded: () => undefined,
   matchEnded: () => undefined,
   stateChanged: () => undefined,
@@ -43,24 +48,32 @@ function localPlayers(playerCount: number): GamePlayerInput[] {
   return [{ id: LOCAL_HUMAN_ID, name: 'Você', isBot: false }, ...bots];
 }
 
+function toHumanDuel(duel: Duel): HumanDuel {
+  return { topId: duel.topId, bottomId: duel.bottomId, combatConfig: duel.combatConfig, durationMs: duel.result.durationMs };
+}
+
 /** Partida do jogador contra bots, rodando inteira no navegador: o cronômetro e os bots ficam aqui, as regras no `Game`. */
 export class LocalMatchSession implements MatchSession {
   readonly humanId = LOCAL_HUMAN_ID;
   readonly spectator = null;
   readonly match: Game;
   readonly spriteSources: readonly SpriteSource[] = [];
+  readonly scenery: MatchScenery;
   readonly roomRules: readonly string[] = [];
 
   private listener: SessionListener = NO_LISTENER;
   private phase: LocalPhase = 'preparation';
+  private duels: readonly Duel[] = [];
   private remainingMs = 0;
   /** Tempo desde que o jogador ficou pronto; `null` enquanto não está pronto. */
   private readyElapsedMs: number | null = null;
 
   constructor(options: LocalMatchOptions = {}) {
     const rotationIndex = rotationIndexAt(options.nowMs ?? Date.now(), DEFAULT_SYNERGY_ROTATION);
+    const seed = options.seed ?? `partida-${Math.floor(Math.random() * 0xffffffff)}`;
+    this.scenery = { map: pickMap(DEFAULT_MAPS, options.mapId, seed), backgroundImageUrl: null };
     this.match = new Game({
-      seed: options.seed ?? `partida-${Math.floor(Math.random() * 0xffffffff)}`,
+      seed,
       roster: DEFAULT_CHARACTERS,
       players: localPlayers(options.playerCount ?? DEFAULT_LOCAL_PLAYER_COUNT),
       synergyMapping: synergyMappingForIndex(
@@ -131,6 +144,15 @@ export class LocalMatchSession implements MatchSession {
     this.listener.stateChanged();
   }
 
+  watchCombat(playerId: string): void {
+    const duel = this.phase === 'combat' ? this.duelOf(playerId) : undefined;
+    if (!duel) {
+      this.listener.actionFailed('player_not_in_combat');
+      return;
+    }
+    this.listener.combatPeekStarted(playerId, toHumanDuel(duel));
+  }
+
   // --- Andamento ----------------------------------------------------------------------------------
 
   presentationFinished(): void {
@@ -187,10 +209,13 @@ export class LocalMatchSession implements MatchSession {
 
   private startCombat(): void {
     this.phase = 'combat';
-    const duels = this.match.resolveCombats();
-    const duel = duels.find((candidate) => candidate.topId === LOCAL_HUMAN_ID || candidate.bottomId === LOCAL_HUMAN_ID);
-    const humanDuel: HumanDuel | null = duel ? { topId: duel.topId, bottomId: duel.bottomId, combatConfig: duel.combatConfig } : null;
-    this.listener.combatStarted(humanDuel);
+    this.duels = this.match.resolveCombats();
+    const duel = this.duelOf(LOCAL_HUMAN_ID);
+    this.listener.combatStarted(duel ? toHumanDuel(duel) : null);
+  }
+
+  private duelOf(playerId: string): Duel | undefined {
+    return this.duels.find((candidate) => candidate.topId === playerId || candidate.bottomId === playerId);
   }
 
   private afterAction(result: ActionResult | null): void {

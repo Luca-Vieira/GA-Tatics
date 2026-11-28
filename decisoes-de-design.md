@@ -355,3 +355,48 @@ Onde esta seção contraria uma anterior, vale esta.
 - **Atualizar a loja:** 2 → **1** moeda (pedido do dono). Os bots nunca atualizam a loja, então as simulações **não medem** o efeito: procurar cópias ficou mais barato, e 2 estrelas devem aparecer mais cedo para quem joga.
 - **Atenção:** um `content.json` já publicado mantém os valores antigos gravados nele.
 
+## 26. Novas demandas de 28/11/2026: personagens, terreno, torres e mapas
+
+Onde as Seções 26 a 28 contrariam uma anterior, valem elas. A ideia da airfryer foi descartada pelo dono. As dúvidas sobre personagens ficaram a critério de quem implementou.
+
+### Personagens
+- **Bixo:** ao descansar, os aliados a até 2 casas também recebem 25% de redução de dano por 4 s (aplicada no momento do uso). A dele continua 70% (o mesmo estado não soma; vale o maior).
+- **Matheus:** 25% de chance de veneno no ataque comum (20% do dano por pulso de 1 s, por 3 s). **Regra nova dos efeitos contínuos:** venenos não somam; vale o de maior dano por segundo, com o intervalo dele, e um mais fraco não altera nem prolonga o forte. Sem isso, o veneno fraco do golpe tirava metade da força do veneno da habilidade.
+- **Raridade:** Helder e Wender trocaram de lugar (Helder comum, que era fraco; Wender raro, que era o mais forte).
+
+### Terreno criado por habilidade
+- Efeito novo `create_terrain`: casas em torno do ponto da habilidade (raio 0 a 2) aplicam um estado em quem passa ou fica em cima; o estado ainda dura `lingerSeconds` depois da saída. Tem duração no chão e **limite por personagem em campo** (`maximumPerOwner`, padrão 2): ao criar mais um, o **mais antigo some** (em vez de recusar o novo). Cada nome de terreno conta separado.
+- Estados aceitos: veneno, lentidão, enfraquecimento, confusão, redução de dano, bônus de velocidade e de dano. Sono e descanso ficaram de fora (prenderiam quem pisa) e a drenagem também (depende do autor por perto).
+- **Quem usa:** Wilian ("Cantinho da soneca": lentidão de 25%, 7 casas, 4,5 s, até 2), por ser o mais fraco em combate puro. Medido: de 43,8% para 52,6% em combate puro e de 49,5% para 54,8% em duelos entre times iguais nas partidas (faixa 42–58%).
+
+### Torres personalizadas e minions
+- `config.tower` guarda a torre básica e as regras da loja; `config.tower.variants` guarda até 8 torres personalizadas (custo, vida, renda, compensação, cor, texto e até 4 bônus). Havendo várias ativas, a loja sorteia o tipo; o máximo de torres vale para todas juntas.
+- **Bônus:** os mesmos efeitos das sinergias (ganharam o atributo **vida**), para o time inteiro ou para quem estiver a até N casas. São calculados **no começo do combate**, pela posição no tabuleiro, e continuam valendo se a torre cair.
+- Vêm dois exemplos **desligados** (Máquina de café e Enfermaria), para não mexer no equilíbrio sem o dono decidir. **Os bônus de torre não foram medidos.**
+- Na preparação, selecionar uma torre com alcance mostra as casas atendidas.
+- **Minions:** a aba "Torres e minions" reúne as criaturas de todas as habilidades; editar ali muda o personagem dono. Não há minion solto, sem habilidade.
+
+### Mapas
+- Só visuais; nenhuma regra muda. Cada mapa tem a cor das casas de cada metade, variação de tom e um fundo: cor, degradê, textura desenhada pelo jogo (sem arquivos) ou imagem PNG enviada pelo painel (mesmos limites dos sprites).
+- Vêm: Escritório (o visual de antes), Praia, Vulcão, Campo e Lua, todos liberados. O painel cria, edita, libera e apaga; é preciso ao menos um liberado.
+- Quem cria a sala escolhe um mapa ou "Aleatório" (sorteado a cada partida pela semente, entre os liberados). A partida rápida é sempre aleatória. **A partida contra bots usa os mapas que vêm com o jogo**, não os publicados.
+- Um `content.json` publicado antes dos mapas continua válido e ganha os mapas do jogo.
+
+## 27. Assistir a outras lutas
+
+- **Quem está vivo:** durante o combate, toca no nome de outro jogador e vê a luta dele, **só enquanto ela está acontecendo**; entra no ponto certo e volta tocando no próprio nome. Se a luta assistida acabar antes, volta sozinho. O servidor só entrega a luta se ela ainda estiver em andamento, e a rodada passa a esperar por ela. Quem está descansando também pode.
+- **Quem foi eliminado:** acompanha qualquer um a qualquer momento. Na preparação vê **o tabuleiro** do acompanhado, atualizado ao vivo (nunca loja, moedas nem reserva). Se o acompanhado cair, o jogo troca sozinho, preferindo quem luta na rodada. Trocar na tela de resultado vale a partir da rodada seguinte. Se só restarem bots, a preparação deles é instantânea e quem assiste vai direto aos combates.
+- **Risco aceito:** um eliminado pode contar a alguém vivo o que vê na preparação (o pedido foi assistir a qualquer instante). A **plateia de fora** continua sem ver tabuleiros em montagem.
+- **Contra bots:** vivo, dá para ver as lutas dos bots; ao ser eliminado a partida continua terminando na hora, como antes.
+- A espera de quem descansa passou de 2,5 s para 5 s, para dar tempo de escolher uma luta.
+- `PROTOCOL_VERSION` passou a 5: servidor e página precisam ser atualizados juntos.
+
+## 28. Notas de atualização, sons, galeria, sprites e modelos
+
+- **Novidades** (tela inicial e hub) junta duas fontes: as atualizações do jogo, em `src/data/releaseNotes.ts` (**acrescentar uma entrada a cada atualização de código**), e as notas do painel, guardadas junto do `content.json` (até 50).
+- **Publicar** abre a escolha **com nota** ou **sem nota**. O rascunho da nota é montado a partir do que mudou (sprites não entram). A aba "Notas" mostra tudo e apaga as do painel. Ela lê a rota pública **sem o token**: com o cabeçalho, o navegador exigiria liberação de CORS que a rota não oferece (os testes em Node não pegam isso).
+- **Música:** tema próprio de combate (136 por minuto, lá menor, bateria e baixo marcado). **Sons:** balanço e impacto separados, disparo, erro, dano de habilidade e em área, veneno, cura, reforço e enfraquecimento, invocação, armadilha, terreno, começo da luta, contagem dos 3 últimos segundos, fusão, ação recusada e fim de partida. Um compressor no canal de efeitos evita estouro. **Ninguém ouviu o resultado ainda.**
+- **Galeria:** sem estar conectado, mostra o elenco publicado no servidor do campo de endereço (rota pública `/api/content`); sem resposta, o que veio com o jogo.
+- **Sprites:** botão de espelhar a imagem e aviso do formato e tamanho aceitos acima de cada envio.
+- **Modelos de personagem:** `modelos/personagens/` (8 arquivos, conferidos por teste). Os números deles não foram balanceados.
+- **Referência JSON:** passou a cobrir veneno no ataque, espelhamento, terreno, torres, mapas e publicação com nota.

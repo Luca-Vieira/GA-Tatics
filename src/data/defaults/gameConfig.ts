@@ -35,5 +35,35 @@ export const DEFAULT_GAME_CONFIG: GameConfig = gameConfigSchema.parse({
     offerChancePercent: 6,
     maximumOwned: 2,
     compensationOnLoss: 2,
+    // Exemplos prontos, desligados: o painel os ativa, edita ou apaga.
+    variants: [
+      {
+        id: 'torre_cafe',
+        name: 'Máquina de café',
+        active: false,
+        cost: 4,
+        health: 3,
+        incomePerRound: 1,
+        compensationOnLoss: 2,
+        color: '#b45309',
+        description: 'Quem fica por perto trabalha acelerado.',
+        buffs: [{ radius: 2, effect: { type: 'attribute_multiplier', attribute: 'attackSpeed', value: 1.12 } }],
+      },
+      {
+        id: 'torre_enfermaria',
+        name: 'Enfermaria',
+        active: false,
+        cost: 4,
+        health: 5,
+        incomePerRound: 0,
+        compensationOnLoss: 2,
+        color: '#16a34a',
+        description: 'Cuida de quem está ao redor.',
+        buffs: [
+          { radius: 2, effect: { type: 'attribute_multiplier', attribute: 'health', value: 1.15 } },
+          { radius: 2, effect: { type: 'hp_regen', value: 0.02, tickSeconds: 3 } },
+        ],
+      },
+    ],
   },
 });

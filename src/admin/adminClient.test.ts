@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_GAME_CONTENT } from '@data/defaults/content';
 import { ContentStore } from '../multiplayer/host/contentStore';
+import { fetchPublicData } from '../multiplayer/client/publicContent';
 import { GameServer } from '../multiplayer/host/GameServer';
 import { ManualScheduler } from '../multiplayer/host/scheduler';
 import { AdminClient, AdminRequestError } from './adminClient';
@@ -42,6 +43,44 @@ describe('cliente do painel de administração (contra o servidor real)', () => 
     const result = await client.publish(published.version, edited.content);
     expect(result).toEqual({ ok: true, version: 2 });
     expect(store.snapshot.content.config.tower.incomePerRound).toBe(4);
+  });
+
+  it('publica com nota, que aparece na rota pública do jogo, e depois a apaga', async () => {
+    const { base } = await startServer();
+    const client = new AdminClient(base);
+    await client.login(ADMIN.username, ADMIN.password);
+    const { content, version } = await client.fetchContent();
+    expect(await client.publish(version, content, { title: 'Equilíbrio', text: 'Bixo mais forte' })).toEqual({ ok: true, version: 2 });
+    expect(await client.publish(2, content)).toEqual({ ok: true, version: 3 });
+
+    const published = await fetchPublicData(base);
+    expect(published?.patchNotes).toEqual([expect.objectContaining({ title: 'Equilíbrio', text: 'Bixo mais forte', contentVersion: 2 })]);
+
+    const [note] = await client.fetchPatchNotes();
+    expect(await client.deletePatchNote(note!.id)).toBe(true);
+    expect(await client.deletePatchNote(note!.id)).toBe(false);
+    expect(await client.fetchPatchNotes()).toEqual([]);
+  });
+
+  it('lê as notas sem mandar o token, para o navegador não exigir liberação extra da rota pública', async () => {
+    const { base } = await startServer();
+    const sentHeaders: string[] = [];
+    const client = new AdminClient(base, (input, init) => {
+      if (String(input).endsWith('/api/content')) {
+        sentHeaders.push(...Object.keys(init?.headers ?? {}));
+      }
+      return fetch(input, init);
+    });
+    await client.login(ADMIN.username, ADMIN.password);
+    await client.fetchPatchNotes();
+    expect(sentHeaders).toEqual([]);
+  });
+
+  it('apagar nota exige login', async () => {
+    const { base, store } = await startServer();
+    store.update(structuredClone(DEFAULT_GAME_CONTENT), undefined, { title: 'Nota', text: 'x' });
+    await expect(new AdminClient(base).deletePatchNote(store.patchNotes[0]!.id)).rejects.toMatchObject({ kind: 'unauthorized' });
+    expect(store.patchNotes).toHaveLength(1);
   });
 
   it('login com senha errada, depois de muitas tentativas e sem painel, dá mensagens claras', async () => {

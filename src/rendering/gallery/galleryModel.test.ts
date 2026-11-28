@@ -39,17 +39,17 @@ describe('modelo da galeria', () => {
   });
 
   it('a torre não ataca, não tem sinergia e conta a renda e a compensação', () => {
-    expect(model.tower.attack).toBeNull();
-    expect(model.tower.synergy).toBeNull();
-    expect(model.tower.attributes.map((attribute) => attribute.key)).toEqual(['health']);
-    expect(model.tower.traits.map((trait) => trait.label)).toContain('Se for destruída');
+    expect(model.towers[0]!.attack).toBeNull();
+    expect(model.towers[0]!.synergy).toBeNull();
+    expect(model.towers[0]!.attributes.map((attribute) => attribute.key)).toEqual(['health']);
+    expect(model.towers[0]!.traits.map((trait) => trait.label)).toContain('Se for destruída');
   });
 
   it('liga o sprite auxiliar à torre e às invocações', () => {
     const sprite = { path: '/sprites/aux-aaaaaaaaaaaa.png', scale: 1, offsetX: 0, offsetY: 0, anchorX: 0.5, anchorY: 1 };
     const changed = buildGalleryModel({ ...DEFAULT_GAME_CONTENT, auxiliarySprites: { torre: sprite, cavalo: sprite } });
 
-    expect(changed.tower.sprite).toBe(sprite);
+    expect(changed.towers[0]!.sprite).toBe(sprite);
     expect(changed.characters.find((entry) => entry.id === 'gustavo')?.summons).toEqual([{ name: 'Cavalo', sprite }]);
   });
 

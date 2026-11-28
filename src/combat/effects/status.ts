@@ -18,7 +18,8 @@ export interface StatusInstance {
   sourceId: string;
   endsAtMs: number;
   value: number;
-  readonly tickMs: number | null;
+  /** Muda quando um efeito contínuo mais forte substitui o que estava ativo. */
+  tickMs: number | null;
   nextTickAtMs: number;
   chargesLeft: number | null;
   healRatio: number;
@@ -35,13 +36,20 @@ export function removeStatus(unit: CombatUnit, status: StatusInstance): void {
   }
 }
 
-/** Aplica o estado. Reaplicar o mesmo estado renova a duração e fica com a maior intensidade, sem acumular. */
+/**
+ * Aplica o estado. Reaplicar o mesmo estado não acumula: renova a duração e fica com a maior intensidade. Nos efeitos
+ * contínuos (veneno, drenagem) vale o de maior dano por segundo, com o intervalo dele; um mais fraco não altera nem
+ * prolonga o mais forte.
+ */
 export function applyStatusToUnit(target: CombatUnit, sourceId: string, spec: StatusSpec, nowMs: number): void {
   const newEndsAtMs = nowMs + spec.durationMs;
   const existing = findStatus(target, spec.kind);
+  if (existing && isWeakerPeriodicEffect(spec, existing)) {
+    return;
+  }
   if (existing) {
     existing.endsAtMs = Math.max(existing.endsAtMs, newEndsAtMs);
-    existing.value = Math.max(existing.value, spec.value);
+    takeStrongerIntensity(existing, spec, nowMs);
     existing.chargesLeft = spec.charges === null ? existing.chargesLeft : Math.max(existing.chargesLeft ?? 0, spec.charges);
     existing.sourceId = sourceId;
     return;
@@ -56,4 +64,18 @@ export function applyStatusToUnit(target: CombatUnit, sourceId: string, spec: St
     chargesLeft: spec.charges,
     healRatio: spec.healRatio,
   });
+}
+
+function isWeakerPeriodicEffect(spec: StatusSpec, existing: StatusInstance): boolean {
+  return spec.tickMs !== null && existing.tickMs !== null && spec.value / spec.tickMs < existing.value / existing.tickMs;
+}
+
+function takeStrongerIntensity(existing: StatusInstance, spec: StatusSpec, nowMs: number): void {
+  if (spec.tickMs === null) {
+    existing.value = Math.max(existing.value, spec.value);
+    return;
+  }
+  existing.value = spec.value;
+  existing.tickMs = spec.tickMs;
+  existing.nextTickAtMs = Math.min(existing.nextTickAtMs, nowMs + spec.tickMs);
 }

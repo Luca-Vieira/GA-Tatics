@@ -17,8 +17,11 @@ export type SpriteAdjustment = Omit<SpriteDefinition, 'path'>;
 
 export const DEFAULT_SPRITE_ADJUSTMENT: SpriteAdjustment = { scale: 1, offsetX: 0, offsetY: 0, anchorX: 0.5, anchorY: 1 };
 
+/** Os ajustes que são números, cada um com um controle deslizante (o espelhamento é um botão à parte). */
+export type NumericAdjustment = Exclude<keyof SpriteAdjustment, 'mirrored'>;
+
 export interface AdjustmentRange {
-  readonly property: keyof SpriteAdjustment;
+  readonly property: NumericAdjustment;
   readonly label: string;
   readonly help: string;
   readonly minimum: number;
@@ -112,6 +115,8 @@ export function clampAdjustment(adjustment: SpriteAdjustment): SpriteAdjustment 
     offsetY: clamp(adjustment.offsetY, -MAXIMUM_OFFSET, MAXIMUM_OFFSET),
     anchorX: clamp(adjustment.anchorX, 0, 1),
     anchorY: clamp(adjustment.anchorY, 0, 1),
+    // Só aparece quando ligado: um sprite sem espelhamento continua com os mesmos campos de antes.
+    ...(adjustment.mirrored ? { mirrored: true } : {}),
   };
 }
 
@@ -125,7 +130,7 @@ export function adjustmentOf(sprite: SpriteDefinition | undefined): SpriteAdjust
 }
 
 export function isSameAdjustment(first: SpriteAdjustment, second: SpriteAdjustment): boolean {
-  return ADJUSTMENT_RANGES.every(({ property }) => first[property] === second[property]);
+  return (first.mirrored === true) === (second.mirrored === true) && ADJUSTMENT_RANGES.every(({ property }) => first[property] === second[property]);
 }
 
 const MAXIMUM_HISTORY_SIZE = 100;

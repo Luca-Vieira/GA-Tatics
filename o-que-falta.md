@@ -55,6 +55,23 @@ Os itens do documento de requisitos do dono foram implementados. Typecheck, lint
 - Falta conferir: celular de verdade; o resultado da rodada e a confirmação de saída no modo compacto; sprites enviados grandes, reduzidos muitas vezes na tela, podem serrilhar.
 - Equilíbrio (Seções 23 a 25): vantagem do 1º lugar, torre, João Lucas e Moço ajustados. Em aberto: uma unidade de 2 estrelas decide quase sempre o combate (e atualizar a loja a 1 moeda deve antecipá-la); duas sinergias de nível 1 rendem mais que uma de nível 2; Wilian ficou como o mais fraco em combate de 1 estrela (perto de 44%).
 
+### Novas demandas de 28/11/2026 (Seções 26 a 28)
+
+Implementadas na branch `versao-2`; **ainda não publicadas na VPS** (a publicação precisa de confirmação do dono). Como o protocolo passou a 5, servidor e página vão juntos.
+
+**Conferido no navegador** (servidor de teste local): mapas Praia, Lua e Vulcão na partida e a prévia de Vulcão, Campo e Lua no painel; terreno do Wilian; assistir à luta de um bot e voltar; jogador eliminado assistindo e trocando de jogador; Máquina de café ligada pelo painel, na loja e com o alcance do bônus; publicar com nota, aba "Notas" e "Novidades"; botão de espelhar e aviso de imagem; saguão em 812×375.
+
+**Falta conferir:**
+- Ouvir a música de combate e os sons novos.
+- Envio de uma imagem de fundo de mapa e de um sprite espelhado de verdade.
+- Dois jogadores em máquinas diferentes assistindo um ao outro.
+- Eliminado vendo o tabuleiro de alguém na preparação (coberto só por testes do servidor).
+- Celular de verdade, com o placar tocável durante o combate.
+
+**Em aberto:**
+- Os bônus das torres personalizadas não foram medidos no equilíbrio.
+- Contra bots: mapas e torres publicados no painel não valem, e quem é eliminado não fica assistindo.
+
 ## 2. Regras de trabalho (do `~/.claude/CLAUDE.md` do dono do projeto)
 
 - Repositórios de código: git só para leitura. Nada de branch, commit, push, PR, checkout, reset, stash, rebase ou merge. A pasta do projeto não é um repositório git hoje.
@@ -149,9 +166,9 @@ Faixas atuais: vitórias por personagem 42–58% (times de 5), 40–60% (7) e 38
 - `Scene.game` e `Scene.data` do Phaser colidem com campos de mesmo nome; use `match` e `sceneData`.
 - `this.sys.isActive()` ainda é falso dentro de `create()`; para saber se a cena está montada use uma flag própria (como em `LobbyScene`).
 - O Phaser sobrescreve o `display` do elemento raiz de um `add.dom(...)`; ponha o painel (que usa flex) dentro de um invólucro.
-- No Windows, parar `npm run server` pelo gerenciador pode deixar o `node` filho vivo na porta 8787; confira com `Get-NetTCPConnection -LocalPort 8787`.
+- No Windows, parar `npm run server` pelo gerenciador pode deixar o `node` filho vivo na porta; confira com `Get-NetTCPConnection -LocalPort 8787`. Antes de testar mudança no servidor, confirme que o novo subiu (senão o teste roda no código antigo).
 - O conteúdo do servidor é validado ao ser lido do arquivo; se `server-data/content.json` ficar inválido o servidor sobe com os padrões e avisa no log. Apague o arquivo para voltar aos padrões de vez.
-- Ao mudar o formato do `hello` ou das mensagens, aumente `PROTOCOL_VERSION` (hoje 4): o cliente recusa servidor de outra versão.
+- Ao mudar o formato do `hello` ou das mensagens, aumente `PROTOCOL_VERSION` (hoje 5): o cliente recusa servidor de outra versão.
 - No painel de pré-visualização o Canvas roda a ~2 quadros por segundo; para conferir resultado e fim de partida, pule a animação (`scene.playback.advanceTo(60000)` pelo console).
 - Retomar uma partida parada na tela de resultado exige `startNextRound()` antes de `resolveCombats()` (já tratado em `playMatchWithBots`).
 - Efeitos temporários criados em tween precisam de `markTransient` / `destroyTransientEffects`, senão sobram textos e efeitos órfãos depois de `tweens.killAll()`.

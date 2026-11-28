@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Efeitos reutilizáveis das sinergias (GDD Seção 4.8). */
 export const synergyEffectSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('attribute_multiplier'), attribute: z.enum(['damage', 'attackSpeed']), value: z.number().positive() }),
+  z.strictObject({ type: z.literal('attribute_multiplier'), attribute: z.enum(['damage', 'attackSpeed', 'health']), value: z.number().positive() }),
   z.strictObject({ type: z.literal('resistance_bonus'), value: z.number().min(0).max(1) }),
   z.strictObject({ type: z.literal('hp_regen'), value: z.number().positive().max(1), tickSeconds: z.number().positive() }),
   z.strictObject({ type: z.literal('cooldown_reduction'), value: z.number().min(0).max(0.9) }),

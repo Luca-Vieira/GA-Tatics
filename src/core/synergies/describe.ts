@@ -22,6 +22,8 @@ function percent(fraction: number): string {
   return `${String(value).replace('.', ',')}%`;
 }
 
+const ATTRIBUTE_NAMES = { damage: 'dano', attackSpeed: 'velocidade de ataque', health: 'vida' } as const;
+
 /** Texto curto, em português, de um efeito de sinergia (para o painel de sinergias e as dicas). */
 export function describeSynergyEffect(effect: SynergyEffect): string {
   switch (effect.type) {
@@ -34,6 +36,6 @@ export function describeSynergyEffect(effect: SynergyEffect): string {
     case 'positive_effect_amplification':
       return `efeitos positivos ${percent(effect.value)} mais fortes`;
     case 'attribute_multiplier':
-      return `+${percent(effect.value - 1)} de ${effect.attribute === 'damage' ? 'dano' : 'velocidade de ataque'}`;
+      return `+${percent(effect.value - 1)} de ${ATTRIBUTE_NAMES[effect.attribute]}`;
   }
 }

@@ -1,0 +1,21 @@
+{
+  "id": "modelo_curador",
+  "name": "Modelo Curador",
+  "archetype": "Suporte",
+  "description": "Fica atrás e cura quem mais precisa.",
+  "category": "support",
+  "rarity": "rare",
+  "active": false,
+  "stats": { "health": 5, "damage": 3, "attackSpeed": 4, "range": 3, "mobility": 3 },
+  "behavior": { "movement": "kite", "targetPriority": "nearest", "preferredDistance": 3 },
+  "ability": {
+    "id": "modelo_pausa_cafe",
+    "name": "Pausa para o café",
+    "description": "Quando há aliado ferido, cura os dois mais machucados que estiverem perto.",
+    "activation": { "type": "cooldown", "requires": "ally_wounded" },
+    "cooldownSeconds": 6,
+    "cast": { "target": "self", "range": 0, "areaRadius": 3 },
+    "effects": [{ "type": "heal", "targets": "allies_in_area", "maxTargets": 2, "prioritize": "lowest_health_ratio", "fractionOfMaxHealth": 0.18 }],
+    "visual": { "kind": "aura", "color": "#4ade80", "icon": "☕" }
+  }
+}

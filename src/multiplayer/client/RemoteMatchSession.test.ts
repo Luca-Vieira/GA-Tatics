@@ -32,6 +32,10 @@ function recordEvents(session: RemoteMatchSession) {
       events.push('combat');
       duels.push(duel);
     },
+    combatPeekStarted: (playerId, duel) => {
+      events.push(`peek:${playerId}`);
+      duels.push(duel);
+    },
     roundConcluded: (summary) => {
       events.push('result');
       summaries.push(summary);
@@ -206,8 +210,11 @@ describe('partida em rede (cliente contra servidor real)', () => {
     session.start();
     for (let round = 0; round < 30 && !events.includes('ended'); round++) {
       const resultsBefore = events.filter((event) => event === 'result').length;
-      session.setReady(true);
-      await eventually(() => session.match.getPlayer(session.humanId).ready || events.includes('ended'), 'pronto');
+      // Quem já foi eliminado só assiste: não há o que marcar como pronto.
+      if (!session.spectator) {
+        session.setReady(true);
+        await eventually(() => session.match.getPlayer(session.humanId).ready || events.includes('ended'), 'pronto');
+      }
       scheduler.advance(0);
       scheduler.advance(DEFAULT_COMBAT_TIME_LIMIT_MS + 1000);
       await eventually(() => events.filter((event) => event === 'result').length > resultsBefore, 'resultado');

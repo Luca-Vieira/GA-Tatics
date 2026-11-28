@@ -66,6 +66,10 @@ export class FakeAudioContext {
     return new FakeAudioNode();
   }
 
+  createDynamicsCompressor(): FakeAudioNode {
+    return new FakeAudioNode();
+  }
+
   createBuffer(_channels: number, length: number): { getChannelData(): Float32Array } {
     const samples = new Float32Array(length);
     return { getChannelData: () => samples };

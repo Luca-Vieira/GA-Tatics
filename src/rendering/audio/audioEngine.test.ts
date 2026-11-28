@@ -5,18 +5,8 @@ import { MINIMUM_INTERVAL_MS } from './effectThrottle';
 import { gameAudio, mountAudioControls, type SoundEffect } from './index';
 import { FakeEnvironment } from './testSupport';
 
-const ALL_EFFECTS: readonly SoundEffect[] = [
-  'attack',
-  'ability',
-  'purchase',
-  'sell',
-  'refresh',
-  'tower_destroyed',
-  'unit_death',
-  'round_win',
-  'round_loss',
-  'click',
-];
+/** A tabela de intervalos tem uma entrada para cada efeito (o compilador garante). */
+const ALL_EFFECTS = Object.keys(MINIMUM_INTERVAL_MS) as SoundEffect[];
 
 /** Mais que um compasso: dá tempo de o agendador criar as próximas notas, se a música estiver tocando. */
 const SEVERAL_SECONDS = 8;
@@ -85,6 +75,30 @@ describe('motor de áudio', () => {
 
     engine.updateSettings({ musicEnabled: true });
     expect(countSoundsWhileTimePasses(environment, SEVERAL_SECONDS)).toBeGreaterThan(0);
+  });
+
+  it('a música de combate é bem mais movimentada que a calma, e dá para voltar', () => {
+    const { engine, environment } = createUnlockedEngine();
+    engine.startMusic();
+    const calm = countSoundsWhileTimePasses(environment, 20);
+    engine.setMusicMood('combat');
+    const combat = countSoundsWhileTimePasses(environment, 20);
+    expect(combat).toBeGreaterThan(calm * 3);
+    engine.setMusicMood('calm');
+    expect(countSoundsWhileTimePasses(environment, 20)).toBeLessThan(combat / 3);
+  });
+
+  it('o clima escolhido antes do primeiro gesto vale quando a música começa; trocar o clima não liga a música', () => {
+    const silent = createUnlockedEngine();
+    silent.engine.setMusicMood('combat');
+    expect(countSoundsWhileTimePasses(silent.environment, SEVERAL_SECONDS)).toBe(0);
+
+    const environment = new FakeEnvironment();
+    const engine = new AudioEngine(environment);
+    engine.setMusicMood('combat');
+    engine.startMusic();
+    environment.makeUserGesture();
+    expect(countSoundsWhileTimePasses(environment, SEVERAL_SECONDS)).toBeGreaterThan(80);
   });
 
   it('chamar startMusic de novo não duplica as notas', () => {

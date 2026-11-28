@@ -11,6 +11,7 @@ function toSource(characterId: string, sprite: SpriteDefinition, spriteBaseUrl: 
     offsetY: sprite.offsetY,
     anchorX: sprite.anchorX,
     anchorY: sprite.anchorY,
+    mirrored: sprite.mirrored,
   };
 }
 

@@ -1,6 +1,5 @@
 import type { SpriteSource } from '@core/game/MatchSession';
 import { isTowerId } from '@core/tower/tower';
-import { TOWER_SPRITE_KEY } from '@data/auxiliarySprites';
 
 /** Os sprites auxiliares chegam em `SpriteSource.characterId` como `aux:<chave>` (veja `MatchSession.ts`). */
 function auxiliarySpriteSourceId(key: string): string {
@@ -17,6 +16,8 @@ export interface SpriteAppearance {
   /** Ponto da imagem (0 a 1) que fica nos pés da unidade. */
   readonly anchorX: number;
   readonly anchorY: number;
+  /** A imagem é espelhada antes de tudo (arte enviada olhando para a esquerda). */
+  readonly mirrored: boolean;
 }
 
 /** A chave da textura leva o endereço, que tem o hash do arquivo: uma imagem nova de um personagem vira outra textura. */
@@ -32,6 +33,7 @@ export function appearanceOfSource(source: SpriteSource): SpriteAppearance {
     offsetY: source.offsetY,
     anchorX: source.anchorX,
     anchorY: source.anchorY,
+    mirrored: source.mirrored === true,
   };
 }
 
@@ -42,5 +44,6 @@ export function spriteIdOfCombatUnit(unit: { readonly characterId: string | null
 
 /** O mesmo para uma unidade do jogador (ou oferta da loja), em que a torre aparece como um "personagem". */
 export function spriteIdOfCharacter(characterId: string): string {
-  return isTowerId(characterId) ? auxiliarySpriteSourceId(TOWER_SPRITE_KEY) : characterId;
+  // A chave do sprite de uma torre é o id dela ("torre" ou "torre_...").
+  return isTowerId(characterId) ? auxiliarySpriteSourceId(characterId) : characterId;
 }

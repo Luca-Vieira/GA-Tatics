@@ -1,14 +1,14 @@
 /** Os dados que a galeria mostra, já em texto. Lógica pura: não usa DOM nem Phaser. */
 import type { SynergyMapping } from '@core/synergies/synergies';
 import { describeSynergyEffect } from '@core/synergies/describe';
-import { buildTowerCharacter } from '@core/tower/tower';
+import { buildTowerCharacter, offeredTowersOf, type TowerDefinition } from '@core/tower/tower';
 import { toCombatStats } from '@combat/units/stats';
-import { auxiliarySpriteKeyOf, TOWER_SPRITE_KEY } from '@data/auxiliarySprites';
-import { attackOf } from '@data/schemas/attack';
+import { auxiliarySpriteKeyOf } from '@data/auxiliarySprites';
+import { attackOf, describeAttack } from '@data/schemas/attack';
 import type { BehaviorProfile, CharacterDefinition, SpriteDefinition } from '@data/schemas/character';
 import type { GameContent } from '@data/schemas/content';
 import type { SynergyDefinition } from '@data/schemas/synergy';
-import { attackShapeLabel, describeAttackArea, type AttackShape } from '@shared/utils/attackArea';
+import { attackShapeLabel, type AttackShape } from '@shared/utils/attackArea';
 import { RARITY_COLORS, RARITY_LABELS, colorToCss } from '../ui/palette';
 
 export type GalleryContent = Pick<GameContent, 'characters' | 'synergies' | 'initialSynergyMapping' | 'config' | 'auxiliarySprites'>;
@@ -91,7 +91,8 @@ export interface GalleryModel {
   /** Personagens ativos, na ordem do conteúdo. */
   readonly characters: readonly GalleryEntry[];
   /** A torre fica à parte: não é personagem, não tem sinergia e não ataca. */
-  readonly tower: GalleryEntry;
+  /** A torre básica e as personalizadas que estão na loja. */
+  readonly towers: readonly GalleryEntry[];
   readonly synergies: readonly GallerySynergy[];
 }
 
@@ -161,7 +162,7 @@ function attackModelOf(character: CharacterDefinition): GalleryAttack {
     shape: attack.shape,
     shapeLabel: attackShapeLabel(attack.shape),
     range,
-    description: describeAttackArea(attack.shape, range, attack.maxTargets, attack.splashDamageFraction),
+    description: describeAttack(attack, range),
   };
 }
 
@@ -212,8 +213,7 @@ function characterEntry(character: CharacterDefinition, content: GalleryContent,
   };
 }
 
-function towerEntry(content: GalleryContent): GalleryEntry {
-  const { tower } = content.config;
+function towerEntry(content: GalleryContent, tower: TowerDefinition): GalleryEntry {
   const character = buildTowerCharacter(tower);
   return {
     ...characterEntry(character, content, null),
@@ -224,9 +224,9 @@ function towerEntry(content: GalleryContent): GalleryEntry {
       { label: 'Custo na loja', value: `${tower.cost} moedas` },
       { label: 'Renda por rodada', value: `+${tower.incomePerRound} moedas` },
       { label: 'Se for destruída', value: `+${tower.compensationOnLoss} moedas, uma única vez` },
-      { label: 'Máximo por jogador', value: String(tower.maximumOwned) },
+      { label: 'Máximo de torres por jogador', value: String(content.config.tower.maximumOwned) },
     ],
-    sprite: content.auxiliarySprites[TOWER_SPRITE_KEY] ?? null,
+    sprite: content.auxiliarySprites[tower.id] ?? null,
   };
 }
 
@@ -237,5 +237,6 @@ export function buildGalleryModel(content: GalleryContent, synergyMapping: Syner
   const characters = content.characters
     .filter((character) => character.active)
     .map((character) => characterEntry(character, content, synergyById.get(synergyMapping[character.id] ?? '') ?? null));
-  return { characters, tower: towerEntry(content), synergies };
+  const towers = offeredTowersOf(content.config.tower).map((tower) => towerEntry(content, tower));
+  return { characters, towers, synergies };
 }

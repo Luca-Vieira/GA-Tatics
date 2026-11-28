@@ -136,6 +136,7 @@ export class UnitView {
       ? scene.add
           .image(customSprite.offsetX * options.bodyScale, customSprite.offsetY * options.bodyScale, customSprite.textureKey)
           .setOrigin(customSprite.anchorX, customSprite.anchorY)
+          .setFlipX(customSprite.mirrored)
           .setScale(options.bodyScale * fit)
       : scene.add
           .image(0, 0, options.isTower ? TOWER_BODY_TEXTURE : UNIT_BODY_TEXTURE)
@@ -197,7 +198,8 @@ export class UnitView {
       return;
     }
     this.facingRight = isFacingRight;
-    this.sprite.setFlipX(!isFacingRight);
+    // Imagem marcada como espelhada: a arte olha para a esquerda, então a inversão é ao contrário.
+    this.sprite.setFlipX(isFacingRight === (this.customSprite?.mirrored ?? false));
     const direction = isFacingRight ? 1 : -1;
     if (this.customSprite) {
       const anchorX = isFacingRight ? this.customSprite.anchorX : 1 - this.customSprite.anchorX;

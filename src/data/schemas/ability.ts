@@ -98,6 +98,33 @@ const summonDecoyEffectSchema = z.strictObject({
   placementRange: z.number().int().min(1).default(2),
 });
 
+/** Estados que um terreno pode aplicar. Sono e descanso prenderiam quem pisa; a drenagem depende do autor por perto. */
+export const TERRAIN_STATUS_KINDS = ['poison', 'slow', 'weaken', 'confuse', 'damage_reduction', 'speed_boost', 'damage_boost'] as const;
+
+/**
+ * Terreno: casas do chão que, por um tempo, aplicam um estado em quem passa ou fica em cima. Cada personagem em campo
+ * mantém no máximo `maximumPerOwner` terrenos de cada nome; ao passar do limite, o mais antigo some.
+ */
+const createTerrainEffectSchema = z.strictObject({
+  type: z.literal('create_terrain'),
+  name: z.string().min(1).max(40),
+  /** Quem sofre o efeito, em relação a quem criou o terreno. */
+  affects: z.enum(['enemies', 'allies', 'everyone']).default('enemies'),
+  status: z.enum(TERRAIN_STATUS_KINDS),
+  /** Mesma intensidade do efeito de estado. */
+  value: z.number().positive(),
+  tickSeconds: z.number().positive().optional(),
+  /** Quanto o estado ainda dura depois que a unidade sai do terreno. */
+  lingerSeconds: z.number().min(0.5).default(1),
+  /** Casas em torno do ponto central da habilidade: 0 é uma casa só. */
+  radius: z.number().int().min(0).max(2).default(0),
+  /** Quanto tempo o terreno fica no chão. */
+  durationSeconds: z.number().positive(),
+  maximumPerOwner: z.number().int().min(1).max(6).default(2),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  icon: z.string().min(1).max(8).optional(),
+});
+
 /** Comportamentos com implementação própria no código; o painel escolhe um e configura os parâmetros. */
 export const registeredBehaviorSchema = z.discriminatedUnion('id', [
   z.strictObject({
@@ -136,6 +163,7 @@ export const effectSchema = z.discriminatedUnion('type', [
   placeTrapEffectSchema,
   summonEffectSchema,
   summonDecoyEffectSchema,
+  createTerrainEffectSchema,
   registeredEffectSchema,
 ]);
 export type EffectDefinition = z.infer<typeof effectSchema>;
@@ -188,6 +216,9 @@ export const abilitySchema = z
   })
   .superRefine((ability, context) => {
     ability.effects.forEach((effect, position) => {
+      if (effect.type === 'create_terrain' && PERIODIC_STATUS_KINDS.includes(effect.status) && effect.tickSeconds === undefined) {
+        context.addIssue({ code: 'custom', path: ['effects', position, 'tickSeconds'], message: `O terreno com o estado "${effect.status}" exige "tickSeconds".` });
+      }
       if (effect.type !== 'status') {
         return;
       }

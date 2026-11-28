@@ -4,7 +4,7 @@ import { AudioEngine } from './audioEngine';
 import { createBrowserEnvironment } from './browserEnvironment';
 import type { GameAudio } from './types';
 
-export type { AudioSettings, GameAudio, SoundEffect } from './types';
+export type { AudioSettings, GameAudio, MusicMood, SoundEffect } from './types';
 
 export const gameAudio: GameAudio = new AudioEngine(createBrowserEnvironment());
 

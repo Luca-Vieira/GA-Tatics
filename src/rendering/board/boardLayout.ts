@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { BOARD_CELLS, sideOfCell, type BoardSide } from '@shared/constants/board';
+import type { MapTiles } from '@data/schemas/map';
+import { BOARD_CELLS, sideOfCell } from '@shared/constants/board';
+import { tilePaletteOf } from '@shared/scenery/mapPainting';
 import type { BoardProjection } from '@shared/utils/boardProjection';
 import type { Hex, Point } from '@shared/utils/hex';
 
@@ -9,18 +11,13 @@ export const SIDE_COLORS = { A: 0x3b82f6, B: 0xf97316 } as const;
 const TILE_THICKNESS = 9;
 const TILE_GAP = 2;
 
-const TILE_COLORS: Readonly<Record<BoardSide, { readonly top: number; readonly side: number; readonly edge: number }>> = {
-  A: { top: 0x2b4a86, side: 0x182a50, edge: 0x6f93d6 },
-  B: { top: 0x8a4b22, side: 0x4f2a14, edge: 0xd9976a },
-};
-
 export const BOARD_DEPTH = -1000;
 
 /** Desenha as casas como lajotas com espessura, de trás para a frente, para as da frente cobrirem as laterais das de trás. */
-export function drawBoard(graphics: Phaser.GameObjects.Graphics, projection: BoardProjection): void {
+export function drawBoard(graphics: Phaser.GameObjects.Graphics, projection: BoardProjection, tiles: MapTiles): void {
   const cellsFromBackToFront = [...BOARD_CELLS].sort((first, second) => projection.cellToGround(first).y - projection.cellToGround(second).y);
   for (const cell of cellsFromBackToFront) {
-    const colors = TILE_COLORS[sideOfCell(cell)];
+    const colors = tilePaletteOf(tiles, sideOfCell(cell) === 'B' ? 'left' : 'right', cell);
     const topCorners = cellCorners(projection, cell);
     const bottomCorners = topCorners.map((corner) => new Phaser.Math.Vector2(corner.x, corner.y + TILE_THICKNESS));
 

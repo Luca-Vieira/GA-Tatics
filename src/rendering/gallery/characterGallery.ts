@@ -157,7 +157,8 @@ class CharacterGallery {
     const screen = this.screen;
     if (screen.kind === 'detail') {
       const entry = this.entryOf(screen.id);
-      return entry ? [createDetailView(entry, this.viewContext(), entry.id !== this.model.tower.id)] : this.listContent();
+      const isCharacter = !this.model.towers.some((tower) => tower.id === entry?.id);
+      return entry ? [createDetailView(entry, this.viewContext(), isCharacter)] : this.listContent();
     }
     if (screen.kind === 'comparison') {
       const [first, second] = this.comparisonIds.map((id) => this.entryOf(id));
@@ -173,8 +174,8 @@ class CharacterGallery {
       entries.length > 0
         ? createContainer('galeria-grade', ...entries.map((entry) => createCard(entry, context)))
         : createElement('p', 'galeria-apagado', 'Nenhum personagem com esse filtro.');
-    const towerSection = createElement('h3', 'galeria-secao', 'Estrutura');
-    return [characters, towerSection, createContainer('galeria-grade', createCard(this.model.tower, context, false))];
+    const towerSection = createElement('h3', 'galeria-secao', this.model.towers.length > 1 ? 'Estruturas' : 'Estrutura');
+    return [characters, towerSection, createContainer('galeria-grade', ...this.model.towers.map((tower) => createCard(tower, context, false)))];
   }
 
   private viewContext(): ViewContext {
@@ -190,7 +191,7 @@ class CharacterGallery {
   }
 
   private entryOf(id: string): GalleryEntry | undefined {
-    return [...this.model.characters, this.model.tower].find((entry) => entry.id === id);
+    return [...this.model.characters, ...this.model.towers].find((entry) => entry.id === id);
   }
 }
 

@@ -82,4 +82,39 @@ describe('armazenamento do conteúdo', () => {
     writeFileSync(filePath, JSON.stringify({ version: 7, content: { characters: [] } }), 'utf8');
     expect(new ContentStore({ filePath }).snapshot.version).toBe(1);
   });
+
+  it('publicar com nota guarda a nota (mais nova primeiro), e sem nota não cria nada', () => {
+    let nowMs = Date.parse('2026-11-30T12:00:00.000Z');
+    const store = new ContentStore({ filePath, nowMs: () => nowMs });
+    store.update(clone(), undefined, { title: '  Primeira  ', text: 'Bixo mais forte' });
+    store.update(clone());
+    nowMs += 1000;
+    store.update(clone(), undefined, { title: 'Segunda', text: 'Mapa novo' });
+    expect(store.patchNotes.map((note) => [note.title, note.contentVersion])).toEqual([
+      ['Segunda', 4],
+      ['Primeira', 2],
+    ]);
+    expect(new ContentStore({ filePath }).patchNotes).toEqual(store.patchNotes);
+  });
+
+  it('uma nota vazia recusa a publicação inteira', () => {
+    const store = new ContentStore({ filePath });
+    const result = store.update(clone(), undefined, { title: 'Sem texto', text: '   ' });
+    expect(!result.ok && result.issues.join(' ')).toContain('nota de atualização');
+    expect(store.snapshot.version).toBe(1);
+    expect(store.patchNotes).toEqual([]);
+  });
+
+  it('guarda no máximo 50 notas e apaga a que for pedida', () => {
+    const store = new ContentStore();
+    for (let publication = 0; publication < 55; publication++) {
+      store.update(clone(), undefined, { title: `Nota ${publication}`, text: 'x' });
+    }
+    expect(store.patchNotes).toHaveLength(50);
+    const [newest] = store.patchNotes;
+    expect(store.removePatchNote(newest!.id)).toBe(true);
+    expect(store.removePatchNote(newest!.id)).toBe(false);
+    expect(store.patchNotes).toHaveLength(49);
+  });
 });
+

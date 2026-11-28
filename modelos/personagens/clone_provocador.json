@@ -1,0 +1,21 @@
+{
+  "id": "modelo_clone",
+  "name": "Modelo Clone",
+  "archetype": "Isca",
+  "description": "Cria um boneco que chama a atenção dos inimigos.",
+  "category": "utility",
+  "rarity": "rare",
+  "active": false,
+  "stats": { "health": 5, "damage": 5, "attackSpeed": 4, "range": 2, "mobility": 4 },
+  "behavior": { "movement": "chase", "targetPriority": "nearest", "preferredDistance": 1 },
+  "ability": {
+    "id": "modelo_substituto",
+    "name": "Substituto",
+    "description": "Deixa um substituto à frente; os inimigos próximos passam a atacá-lo.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 14,
+    "cast": { "target": "nearest_enemy", "range": 6 },
+    "effects": [{ "type": "summon_decoy", "name": "Substituto", "health": 3, "lifetimeSeconds": 4, "tauntRadius": 3, "placementRange": 2 }],
+    "visual": { "kind": "burst", "color": "#f472b6", "icon": "🎭" }
+  }
+}

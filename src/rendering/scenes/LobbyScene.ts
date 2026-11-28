@@ -5,7 +5,13 @@ import { describeRoomModifiers } from '@core/game/roomModifiers';
 import { rotationIndexAt, synergyMappingForIndex } from '@core/synergies/rotation';
 import { DEFAULT_GAME_CONTENT } from '@data/defaults/content';
 import { NO_ROOM_MODIFIERS, ROOM_MODIFIER_CHOICES, type RoomModifiers } from '@data/schemas/roomModifiers';
-import { defaultSocketAddress } from '@shared/utils/serverAddress';
+import { defaultHttpAddress, defaultSocketAddress } from '@shared/utils/serverAddress';
+import { fetchPublicContent, fetchPublicData } from '@multiplayer/client/publicContent';
+import { buildNewsFeed, formatNewsDate } from '@core/news/newsFeed';
+import { RELEASE_NOTES } from '@data/releaseNotes';
+import type { PatchNote } from '@data/schemas/patchNote';
+import { DEFAULT_MAPS } from '@data/defaults/maps';
+import type { MapDefinition } from '@data/schemas/map';
 import { LobbyClient } from '@multiplayer/client/LobbyClient';
 import type { RemoteMatchSession } from '@multiplayer/client/RemoteMatchSession';
 import { ConnectionError, ServerConnection } from '@multiplayer/client/ServerConnection';
@@ -98,6 +104,12 @@ export class LobbyScene extends Phaser.Scene {
   private client: LobbyClient | null = null;
   private overlay: HTMLElement | null = null;
   private closeGallery: (() => void) | null = null;
+  private isOpeningGallery = false;
+  /** Tela "Novidades" aberta, com as notas do servidor (quando ele responde). */
+  private news: { readonly patchNotes: readonly PatchNote[]; readonly serverStatus: 'loading' | 'ok' | 'unavailable' } | null = null;
+  /** Mapas escolhidos (vazio = sortear): o da partida contra bots e o da sala nova. */
+  private localMapId = '';
+  private newRoomMapId = '';
   private stopWatchingMatch: (() => void) | null = null;
   private readonly unsubscribers: (() => void)[] = [];
   private refreshTimer: number | null = null;
@@ -122,6 +134,7 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   init(data: LobbySceneData): void {
+    this.news = null;
     this.stopWatchingMatch?.();
     this.stopWatchingMatch = null;
     // A cena é a mesma a cada volta: se a conexão continua aberta, ela é mantida mesmo sem vir nos dados.
@@ -255,6 +268,7 @@ export class LobbyScene extends Phaser.Scene {
       password: password || undefined,
       modifiers: this.newRoomModifiers,
       maximumPlayers: this.newRoomPlayerCount,
+      mapId: this.newRoomMapId || undefined,
     });
   }
 
@@ -316,7 +330,8 @@ export class LobbyScene extends Phaser.Scene {
 
   private startLocalMatch(): void {
     const playerCount = this.localPlayerCount;
-    const createSession = () => new LocalMatchSession({ playerCount });
+    const mapId = this.localMapId || undefined;
+    const createSession = () => new LocalMatchSession({ playerCount, mapId });
     const data: GameSceneData = { session: createSession(), playAgain: createSession, endButtonLabel: 'Jogar novamente' };
     this.scene.start('GameScene', data);
   }
@@ -345,12 +360,25 @@ export class LobbyScene extends Phaser.Scene {
 
   // --- Consulta de personagens ---------------------------------------------------------------------
 
-  private openGallery(): void {
-    if (this.closeGallery) {
+  /**
+   * A tela de personagens mostra o que está publicado: o conteúdo da conexão ou, sem conexão, o do servidor indicado no
+   * campo de endereço. Só se o servidor não responder vale o elenco que veio com o jogo.
+   */
+  private async openGallery(): Promise<void> {
+    if (this.closeGallery || this.isOpeningGallery) {
       return;
     }
+    this.isOpeningGallery = true;
     const client = this.client;
-    const content = client ? client.content : DEFAULT_GAME_CONTENT;
+    const httpBaseUrl = defaultHttpAddress({ isDevelopment: false, page: window.location, configuredUrl: this.serverAddress });
+    const published = client ? null : await fetchPublicContent(httpBaseUrl);
+    this.isOpeningGallery = false;
+    // A pessoa pode ter saído do saguão (por exemplo, começado uma partida) enquanto o servidor respondia.
+    if (!this.isShown || this.closeGallery) {
+      return;
+    }
+    const content = client ? client.content : (published ?? DEFAULT_GAME_CONTENT);
+    const spriteBaseUrl = client ? client.spriteBaseUrl : published ? httpBaseUrl : null;
     const synergyIds = content.synergies.map((synergy) => synergy.id);
     const rotationIndex = rotationIndexAt(Date.now(), content.rotation);
     // Com a galeria aberta o saguão sai de cena, para não receber cliques nem toques.
@@ -358,7 +386,7 @@ export class LobbyScene extends Phaser.Scene {
     this.closeGallery = openCharacterGallery({
       content,
       synergyMapping: synergyMappingForIndex(rotationIndex, content.rotation, content.initialSynergyMapping, synergyIds),
-      spriteUrlOf: client ? (path) => `${client.spriteBaseUrl}${path}` : undefined,
+      spriteUrlOf: spriteBaseUrl === null ? undefined : (path) => `${spriteBaseUrl}${path}`,
       onClose: () => {
         this.closeGallery = null;
         this.setOverlayVisible(true);
@@ -395,7 +423,10 @@ export class LobbyScene extends Phaser.Scene {
     this.roomListContainer = null;
     const client = this.client;
     let content: HTMLElement;
-    if (client?.isInRoom) {
+    if (this.news && !client?.isInRoom) {
+      this.stopPolling();
+      content = this.buildNewsPanel();
+    } else if (client?.isInRoom) {
       this.stopPolling();
       content = this.buildRoomPanel(client);
     } else if (client) {
@@ -410,10 +441,52 @@ export class LobbyScene extends Phaser.Scene {
       content = this.buildEntryPanel();
     }
     overlay.replaceChildren(content);
-    if (this.hubView === 'hub' && client && !client.isInRoom) {
+    if (!this.news && this.hubView === 'hub' && client && !client.isInRoom) {
       this.renderRoomList();
     }
     overlay.scrollTop = scrollTop;
+  }
+
+  /** As atualizações do jogo aparecem na hora; as notas do servidor chegam em seguida. */
+  private async openNews(): Promise<void> {
+    this.news = { patchNotes: [], serverStatus: 'loading' };
+    this.render();
+    const httpBaseUrl = this.client ? this.client.spriteBaseUrl : defaultHttpAddress({ isDevelopment: false, page: window.location, configuredUrl: this.serverAddress });
+    const published = await fetchPublicData(httpBaseUrl);
+    if (!this.news) {
+      return;
+    }
+    this.news = { patchNotes: published?.patchNotes ?? [], serverStatus: published ? 'ok' : 'unavailable' };
+    this.render();
+  }
+
+  private buildNewsPanel(): HTMLElement {
+    const panel = element('div', this.panelStyle(620));
+    const header = element('div', `${ROW_STYLE}justify-content:space-between;align-items:center;`);
+    header.append(
+      element('div', 'font-size:24px;font-weight:bold;', 'Novidades'),
+      this.buildButton('Voltar', '#334155', () => {
+        this.news = null;
+        this.render();
+      }),
+    );
+    panel.append(header);
+    const status = this.news?.serverStatus;
+    if (status === 'loading') {
+      panel.append(element('div', 'font-size:12px;color:#94a3b8;', 'Buscando as notas do servidor…'));
+    } else if (status === 'unavailable') {
+      panel.append(element('div', 'font-size:12px;color:#94a3b8;', 'Não foi possível falar com o servidor: aparecem só as atualizações do jogo.'));
+    }
+    for (const entry of buildNewsFeed(RELEASE_NOTES, this.news?.patchNotes ?? [])) {
+      const box = element('div', 'padding:10px 12px;border-radius:6px;background:#0f1a30;');
+      const origin = entry.source === 'game' ? 'Atualização do jogo' : 'Ajustes do servidor';
+      box.append(element('div', 'font-size:12px;color:#94a3b8;', `${formatNewsDate(entry.date)} · ${origin}`), element('div', 'font-weight:bold;margin:2px 0 4px;', entry.title));
+      const lines = element('ul', 'margin:0;padding-left:20px;font-size:14px;line-height:1.5;');
+      entry.lines.forEach((line) => lines.append(element('li', '', line)));
+      box.append(lines);
+      panel.append(box);
+    }
+    return panel;
   }
 
   private panelStyle(width: number): string {
@@ -428,8 +501,16 @@ export class LobbyScene extends Phaser.Scene {
     countField.style.flex = '1 1 110px';
     const localButton = this.buildButton('Jogar contra bots (neste navegador)', '#16a34a', () => this.startLocalMatch());
     localButton.style.flex = '3 1 220px';
-    localRow.append(countField, localButton);
-    panel.append(localRow, this.buildButton('Personagens', '#7c3aed', () => this.openGallery()));
+    const mapField = this.buildMapField(DEFAULT_MAPS, this.localMapId, (mapId) => (this.localMapId = mapId));
+    mapField.style.flex = '1 1 130px';
+    localRow.append(countField, mapField, localButton);
+    const infoRow = element('div', ROW_STYLE);
+    const gallery = this.buildButton('Personagens', '#7c3aed', () => void this.openGallery());
+    gallery.style.flex = '1 1 140px';
+    const news = this.buildButton('📋 Novidades', '#0f766e', () => void this.openNews());
+    news.style.flex = '1 1 140px';
+    infoRow.append(gallery, news);
+    panel.append(localRow, infoRow);
     panel.append(element('div', 'border-top:1px solid #2f3e5c;margin:6px 0;'));
     panel.append(element('div', 'font-weight:bold;', 'Jogar em rede'));
     panel.append(this.buildField('Seu nome', this.playerName, (value) => (this.playerName = value), MAXIMUM_PLAYER_NAME_LENGTH));
@@ -443,7 +524,7 @@ export class LobbyScene extends Phaser.Scene {
     const panel = element('div', this.panelStyle(720));
     const header = element('div', `${ROW_STYLE}justify-content:space-between;align-items:center;`);
     const headerActions = element('div', ROW_STYLE);
-    headerActions.append(this.buildButton('Personagens', '#7c3aed', () => this.openGallery()), this.buildButton('Desconectar', '#334155', () => this.disconnect()));
+    headerActions.append(this.buildButton('📋 Novidades', '#0f766e', () => void this.openNews()), this.buildButton('Personagens', '#7c3aed', () => void this.openGallery()), this.buildButton('Desconectar', '#334155', () => this.disconnect()));
     header.append(element('div', 'font-size:24px;font-weight:bold;', 'Salas'), headerActions);
     panel.append(header);
 
@@ -503,7 +584,7 @@ export class LobbyScene extends Phaser.Scene {
     const watching = room.spectatorCount > 0 ? ` · ${room.spectatorCount} assistindo` : '';
     const meta = element('div', 'font-size:12px;color:#94a3b8;', `${room.roomCode} · ${room.playerCount}/${room.maximumPlayers} jogadores · ${status}${watching}`);
     info.append(title, meta);
-    const rules = describeRoomModifiers(room.modifiers);
+    const rules = [...this.mapTagsOf(room.mapId), ...describeRoomModifiers(room.modifiers)];
     if (rules.length > 0) {
       const tags = element('div');
       rules.forEach((rule) => tags.append(element('span', TAG_STYLE, rule)));
@@ -555,6 +636,8 @@ export class LobbyScene extends Phaser.Scene {
     panel.append(this.buildPlayerCountField(this.newRoomPlayerCount, (count) => (this.newRoomPlayerCount = count)));
     panel.append(element('div', 'font-size:12px;color:#94a3b8;', 'As vagas que ninguém ocupar são preenchidas por bots.'));
 
+    panel.append(this.buildMapField(this.client?.content.maps ?? DEFAULT_MAPS, this.newRoomMapId, (mapId) => (this.newRoomMapId = mapId)));
+
     panel.append(this.buildField('Senha da sala (opcional)', this.newRoomPassword, (value) => (this.newRoomPassword = value), MAXIMUM_ROOM_PASSWORD_LENGTH, false, 'password'));
 
     panel.append(element('div', 'font-weight:bold;margin-top:6px;', 'Regras da sala'));
@@ -583,7 +666,7 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private buildRoomPanel(client: LobbyClient): HTMLElement {
-    const { roomCode, status, members, visibility, hasPassword, modifiers, maximumPlayers } = client.state;
+    const { roomCode, status, members, visibility, hasPassword, modifiers, maximumPlayers, mapId } = client.state;
     const panel = element('div', this.panelStyle(480));
     panel.append(element('div', 'font-size:14px;color:#94a3b8;text-align:center;', visibility === 'private' ? 'Sala privada: passe o código a quem for jogar' : 'Código da sala (passe aos outros jogadores)'));
     panel.append(element('div', 'font-size:44px;font-weight:bold;letter-spacing:10px;text-align:center;color:#fbbf24;', roomCode ?? ''));
@@ -591,7 +674,8 @@ export class LobbyScene extends Phaser.Scene {
     const badges = element('div', 'text-align:center;');
     badges.append(element('span', TAG_STYLE, visibility === 'private' ? 'Privada' : 'Pública'));
     if (hasPassword) badges.append(element('span', TAG_STYLE, '🔒 Com senha'));
-    describeRoomModifiers(modifiers).forEach((rule) => badges.append(element('span', TAG_STYLE, rule)));
+    const mapTags = mapId ? this.mapTagsOf(mapId) : ['Mapa sorteado'];
+    [...mapTags, ...describeRoomModifiers(modifiers)].forEach((rule) => badges.append(element('span', TAG_STYLE, rule)));
     panel.append(badges);
 
     const list = element('div', 'display:flex;flex-direction:column;gap:6px;');
@@ -623,15 +707,32 @@ export class LobbyScene extends Phaser.Scene {
     return this.buildNumberSelect('Jogadores', options, value, onChange);
   }
 
+  /** Só aparecem os mapas liberados; sem escolha, o mapa é sorteado. */
+  private buildMapField(maps: readonly MapDefinition[], value: string, onChange: (mapId: string) => void): HTMLElement {
+    const released = maps.filter((map) => map.active).map((map) => ({ value: map.id, label: map.name }));
+    return this.buildSelect('Mapa', [{ value: '', label: 'Aleatório' }, ...released], value, onChange);
+  }
+
+  /** O nome do mapa escolhido para a sala, para as etiquetas (nada quando é sorteado). */
+  private mapTagsOf(mapId: string | null): string[] {
+    const map = this.client?.content.maps.find((candidate) => candidate.id === mapId);
+    return map ? [`Mapa: ${map.name}`] : [];
+  }
+
   private buildNumberSelect(label: string, options: readonly { readonly value: number; readonly label: string }[], value: number, onChange: (value: number) => void): HTMLElement {
+    const textOptions = options.map((choice) => ({ value: String(choice.value), label: choice.label }));
+    return this.buildSelect(label, textOptions, String(value), (selected) => onChange(Number(selected)));
+  }
+
+  private buildSelect(label: string, options: readonly { readonly value: string; readonly label: string }[], value: string, onChange: (value: string) => void): HTMLElement {
     const select = element('select', INPUT_STYLE);
     for (const choice of options) {
       const option = element('option', '', choice.label);
-      option.value = String(choice.value);
+      option.value = choice.value;
       select.append(option);
     }
-    select.value = String(value);
-    select.addEventListener('change', () => onChange(Number(select.value)));
+    select.value = options.some((choice) => choice.value === value) ? value : (options[0]?.value ?? '');
+    select.addEventListener('change', () => onChange(select.value));
     const wrapper = element('label', LABEL_STYLE, label);
     wrapper.append(select);
     return wrapper;

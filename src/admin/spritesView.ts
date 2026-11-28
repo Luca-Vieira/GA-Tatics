@@ -16,7 +16,7 @@ import {
   type SpriteAdjustment,
   type SpriteFacing,
 } from './spriteAdjust';
-import { checkSpriteBytes } from './spriteFile';
+import { checkSpriteBytes, spriteRequirementsNotice } from './spriteFile';
 import { createSpritePreview, type SpritePreview } from './spritePreview';
 import { spriteOfTarget, spriteTargetsOf, targetId, uploadIdOf, withTargetSprite, type SpriteTarget } from './spriteTargets';
 
@@ -95,7 +95,7 @@ export function renderSpritesView(context: SpritesViewContext): HTMLElement {
   return el('div', {}, [
     el('div', {
       className: 'note',
-      text: 'Desenhe a arte de perfil, olhando para a DIREITA: o jogo a espelha quando a unidade ataca para a esquerda. PNG com fundo transparente, até 1 MB e 1024×1024 pixels. Os ajustes só chegam aos jogadores depois de aplicar e publicar.',
+      text: 'A arte deve ficar de perfil, olhando para a DIREITA (se olhar para a esquerda, use "Espelhar a imagem"). O jogo a espelha quando a unidade ataca para a esquerda. Os ajustes só chegam aos jogadores depois de aplicar e publicar.',
     }),
     el('div', { className: 'columns spaced' }, [renderTargetList(context, targets, selected), renderEditorFor(context, selected)]),
     renderIconTable(context),
@@ -187,7 +187,13 @@ function renderEditorFor(context: SpritesViewContext, target: SpriteTarget): HTM
   );
   const history = el('div', { className: 'row' }, [applyButton, undoButton, discardButton, actionButton('Restaurar padrão', () => update(() => session.restoreDefault()), 'quiet')]);
 
-  const stage = el('div', { className: 'stage-column' }, [renderViewOptions(panel)]);
+  const mirrorButton = actionButton('', () => update(() => session.change({ ...session.current, mirrored: !session.current.mirrored })), 'quiet');
+  syncers.push((adjustment) => {
+    mirrorButton.textContent = adjustment.mirrored ? '⇋ Imagem espelhada (desfazer o espelho)' : '⇋ Espelhar a imagem';
+    mirrorButton.disabled = !sprite && chosenFileUrl === null;
+  });
+
+  const stage = el('div', { className: 'stage-column' }, [renderViewOptions(panel), el('div', { className: 'row' }, [mirrorButton])]);
   stage.append(preview.element, el('div', { className: 'help', text: 'A cruz amarela são os pés (centro da casa). Dá para arrastar a imagem. No jogo, quem está no fundo do tabuleiro aparece até 10% menor.' }));
 
   const editor = el('div', { className: 'form' }, [
@@ -312,7 +318,7 @@ function renderFileSection(
     actions.append(actionButton('Remover sprite', () => removeSprite(context, target), 'danger', context.isBusy));
   }
   const description = sprite ? `Arquivo: ${sprite.path}` : 'Sem sprite: o jogo usa o desenho provisório.';
-  return el('div', {}, [actions, el('div', { className: 'muted', text: description })]);
+  return el('div', {}, [spriteRequirementsNotice(), actions, el('div', { className: 'muted', text: description })]);
 }
 
 async function uploadSprite(context: SpritesViewContext, target: SpriteTarget, fileInput: HTMLInputElement, status: HTMLElement): Promise<void> {

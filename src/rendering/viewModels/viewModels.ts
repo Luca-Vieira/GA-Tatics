@@ -7,10 +7,9 @@ import type { MatchView, RoundResultDuel, RoundResultSummary } from '@core/game/
 import { STAR_MULTIPLIERS, toCombatStats, type StarLevel } from '@combat/units/stats';
 import type { CombatUnitInspection } from '@combat/units/inspect';
 import type { CombatUnit } from '@combat/units/unit';
-import { attackOf } from '@data/schemas/attack';
+import { attackOf, describeAttack } from '@data/schemas/attack';
 import type { BehaviorProfile, CharacterDefinition } from '@data/schemas/character';
 import type { SynergyDefinition } from '@data/schemas/synergy';
-import { describeAttackArea } from '@shared/utils/attackArea';
 import type { InfoModel, InfoStatLine } from '../ui/InfoPanel';
 import type { ScreenModel } from '../ui/ScreenOverlay';
 import type { ShopViewModel } from '../ui/ShopPanel';
@@ -29,6 +28,7 @@ export const FAILURE_MESSAGES: Readonly<Record<ActionFailure, string>> = {
   invalid_destination: 'Essa casa não pode receber a unidade.',
   board_full: 'Limite de unidades do tabuleiro atingido.',
   tower_limit: 'Você já tem o máximo de torres.',
+  player_not_in_combat: 'Só dá para assistir enquanto a luta dessa pessoa está acontecendo.',
   spectator: 'Você está só assistindo.',
 };
 
@@ -155,7 +155,7 @@ export function buildInfoModel(game: MatchView, characterId: string, starLevel: 
           { label: 'Alcance', scaleValue: character.stats.range, displayValue: String(stats.range) },
           { label: 'Mobilidade', scaleValue: character.stats.mobility, displayValue: `${stats.hexesPerSecond.toFixed(2)}/s` },
         ],
-    attackText: isTower ? '' : describeAttackArea(attack.shape, stats.range, attack.maxTargets, attack.splashDamageFraction),
+    attackText: isTower ? '' : describeAttack(attack, stats.range),
     traitText: isTower ? 'Estrutura: não ataca nem se move. Os inimigos podem destruí-la.' : describeBehavior(character.behavior),
     statusText: '',
     abilityName: character.ability.name,
@@ -252,6 +252,8 @@ export function buildCombatInfoModel(game: MatchView, unit: Readonly<CombatUnit>
 export interface ViewerOptions {
   /** Quem vê só assiste: os textos não falam em "você". */
   readonly isSpectator?: boolean;
+  /** Jogador vivo olhando a luta desta pessoa (marcada no placar). */
+  readonly peekedPlayerId?: string | null;
 }
 
 export function buildTopBarModel(game: MatchView, humanId: string, timerLabel: string, phaseLabel: string, options: ViewerOptions = {}): TopBarModel {
@@ -263,7 +265,7 @@ export function buildTopBarModel(game: MatchView, humanId: string, timerLabel: s
     timerLabel,
     players: game.players.map((player) => ({
       id: player.id,
-      name: player.id === humanId ? highlightedName(player.name) : player.name,
+      name: player.id === humanId ? highlightedName(player.name) : player.id === options.peekedPlayerId ? `👁 ${player.name}` : player.name,
       lives: player.lives,
       maximumLives: game.config.rounds.startingLives,
       isYou: player.id === humanId,
@@ -317,10 +319,10 @@ function resultHeadline(game: MatchView, ownDuel: RoundResultDuel | undefined, h
   return ownDuelHeadline(game, ownDuel, humanId);
 }
 
-function towerLossLine(game: MatchView, ownerId: string, lostCount: number, viewerId: string | null): string {
-  const compensation = game.config.tower.compensationOnLoss * lostCount;
+function towerLossLine(game: MatchView, ownerId: string, lostCount: number, compensation: number, viewerId: string | null): string {
   if (ownerId === viewerId) {
-    return `Sua torre foi destruída e sumiu para sempre! Você ganha +${compensation} moedas na próxima rodada.`;
+    const refund = compensation > 0 ? ` Você ganha +${compensation} moedas na próxima rodada.` : '';
+    return `Sua torre foi destruída e sumiu para sempre!${refund}`;
   }
   return `${game.getPlayer(ownerId).name} perdeu ${lostCount === 1 ? 'uma torre' : `${lostCount} torres`}.`;
 }
@@ -347,7 +349,9 @@ export function buildRoundResultScreen(game: MatchView, summary: RoundResultSumm
   if (summary.restingId && (isSpectator || summary.restingId !== humanId)) {
     lines.push(`${nameOf(summary.restingId)} descansou.`);
   }
-  Object.entries(summary.towersLostByPlayerId).forEach(([playerId, lost]) => lines.push(towerLossLine(game, playerId, lost, isSpectator ? null : humanId)));
+  Object.entries(summary.towersLostByPlayerId).forEach(([playerId, lost]) =>
+    lines.push(towerLossLine(game, playerId, lost, summary.towerCompensationByPlayerId[playerId] ?? 0, isSpectator ? null : humanId)),
+  );
   summary.eliminatedIds.forEach((playerId) => lines.push(`${nameOf(playerId)} foi eliminado!`));
 
   return { title: headline.title, titleColor: headline.titleColor, lines, buttonLabel: `Continuar (${Math.max(0, Math.ceil(secondsLeft))})` };

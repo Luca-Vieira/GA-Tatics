@@ -36,6 +36,9 @@ function applyEffect(world: CombatWorld, cast: CastContext, effect: EffectDefini
     case 'summon_decoy':
       applyDecoyEffect(world, cast, effect);
       return;
+    case 'create_terrain':
+      applyTerrainEffect(world, cast, effect);
+      return;
     case 'registered':
       applyRegisteredEffect(world, cast, effect.behavior);
       return;
@@ -62,13 +65,15 @@ function amplifyIfPositive(status: StatusKind, value: number, caster: CombatUnit
   return POSITIVE_STATUS_KINDS.includes(status) ? value * caster.positiveEffectMultiplier : value;
 }
 
+/** Veneno e drenagem guardam o dano por pulso já calculado com o dano do autor no momento do uso. */
+function statusValueOf(status: StatusKind, intensity: number, caster: CombatUnit): number {
+  return PERIODIC_STATUS_KINDS.includes(status)
+    ? caster.stats.damage * computeOutgoingDamageMultiplier(caster) * intensity
+    : amplifyIfPositive(status, intensity, caster);
+}
+
 function applyStatusEffect(world: CombatWorld, cast: CastContext, effect: Extract<EffectDefinition, { type: 'status' }>): void {
-  const isPeriodic = PERIODIC_STATUS_KINDS.includes(effect.status);
-  // Veneno e drenagem guardam o dano por pulso já calculado com o dano do autor no momento do uso.
-  const intensity = effect.value ?? 0;
-  const value = isPeriodic
-    ? cast.caster.stats.damage * computeOutgoingDamageMultiplier(cast.caster) * intensity
-    : amplifyIfPositive(effect.status, intensity, cast.caster);
+  const value = statusValueOf(effect.status, effect.value ?? 0, cast.caster);
   const charges = effect.charges ?? (effect.status === 'confuse' ? 1 : null);
 
   for (const target of resolveTargets(world, cast, effect)) {
@@ -81,6 +86,31 @@ function applyStatusEffect(world: CombatWorld, cast: CastContext, effect: Extrac
       healRatio: effect.healRatio ?? 0,
     });
   }
+}
+
+/** O terreno cobre as casas em torno do ponto central da habilidade, ocupadas ou não: é o chão. */
+function applyTerrainEffect(world: CombatWorld, cast: CastContext, effect: Extract<EffectDefinition, { type: 'create_terrain' }>): void {
+  const { caster, center } = cast;
+  world.placeTerrain({
+    ownerId: caster.id,
+    side: caster.side,
+    name: effect.name,
+    center,
+    cells: BOARD_CELLS.filter((cell) => hexDistance(center, cell) <= effect.radius),
+    affects: effect.affects,
+    status: {
+      kind: effect.status,
+      durationMs: effect.lingerSeconds * 1000,
+      value: statusValueOf(effect.status, effect.value, caster),
+      tickMs: effect.tickSeconds === undefined ? null : effect.tickSeconds * 1000,
+      charges: effect.status === 'confuse' ? 1 : null,
+      healRatio: 0,
+    },
+    lifetimeMs: effect.durationSeconds * 1000,
+    maximumPerOwner: effect.maximumPerOwner,
+    color: effect.color,
+    icon: effect.icon,
+  });
 }
 
 /** Planta a armadilha na casa livre, ao alcance do autor, mais próxima do alvo. */

@@ -23,6 +23,21 @@ export interface TrapRequest {
   readonly summon: { readonly name: string; readonly stats: BaseStats; readonly count: number; readonly lifetimeMs: number };
 }
 
+export interface TerrainRequest {
+  readonly ownerId: string;
+  readonly side: BoardSide;
+  readonly name: string;
+  readonly center: Hex;
+  readonly cells: readonly Hex[];
+  readonly affects: 'enemies' | 'allies' | 'everyone';
+  /** Estado aplicado em quem está em cima; a duração é o tempo que ele ainda vale depois da saída. */
+  readonly status: StatusSpec;
+  readonly lifetimeMs: number;
+  readonly maximumPerOwner: number;
+  readonly color: string;
+  readonly icon?: string;
+}
+
 export interface SummonSpawnRequest {
   readonly ownerId: string;
   readonly side: BoardSide;
@@ -58,6 +73,7 @@ export interface CombatWorld {
   heal(source: CombatUnit | null, target: CombatUnit, amount: number): number;
   applyStatus(source: CombatUnit, target: CombatUnit, spec: StatusSpec): void;
   placeTrap(request: TrapRequest): void;
+  placeTerrain(request: TerrainRequest): void;
   /** Coloca as criaturas invocadas no tabuleiro (menos, se faltar casa livre). */
   spawnSummons(request: SummonSpawnRequest): void;
   /** Cria um clone provocador na casa indicada (que deve estar livre). */

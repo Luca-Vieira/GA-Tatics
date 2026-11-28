@@ -43,47 +43,55 @@ export function bonusesOfSingleTier(synergy: SynergyDefinition, tierIndex: numbe
 
 const MAXIMUM_COOLDOWN_REDUCTION = 0.9;
 
+/** Efeitos ativos das sinergias que valem para uma unidade daquela sinergia. */
+export function synergyEffectsFor(statuses: readonly SynergyStatus[], unitSynergyId: string | undefined): SynergyEffect[] {
+  return statuses
+    .filter((status) => status.synergy.appliesTo === 'allTeam' || status.synergy.id === unitSynergyId)
+    .flatMap((status) => activeEffectsOf(status));
+}
+
+export function computeBonusesForUnit(statuses: readonly SynergyStatus[], unitSynergyId: string | undefined): TeamBonuses {
+  return combineBonusEffects(synergyEffectsFor(statuses, unitSynergyId));
+}
+
 /**
- * Soma os efeitos ativos que valem para uma unidade: resistência, recarga e amplificação somam;
+ * Soma efeitos de bônus (de sinergias e de torres): resistência, recarga e amplificação somam;
  * multiplicadores de atributo se multiplicam; regenerações viram uma só taxa por segundo.
  */
-export function computeBonusesForUnit(statuses: readonly SynergyStatus[], unitSynergyId: string | undefined): TeamBonuses {
+export function combineBonusEffects(effects: readonly SynergyEffect[]): TeamBonuses {
   let resistance = 0;
   let damageMultiplier = 1;
   let attackSpeedMultiplier = 1;
+  let maxHealthMultiplier = 1;
   let cooldownReduction = 0;
   let positiveEffectAmplification = 0;
   let regenPerSecond = 0;
   let shortestRegenTickSeconds = Infinity;
 
-  for (const status of statuses) {
-    const appliesToUnit = status.synergy.appliesTo === 'allTeam' || status.synergy.id === unitSynergyId;
-    if (!appliesToUnit) {
-      continue;
-    }
-    for (const effect of activeEffectsOf(status)) {
-      switch (effect.type) {
-        case 'resistance_bonus':
-          resistance += effect.value;
-          break;
-        case 'attribute_multiplier':
-          if (effect.attribute === 'damage') {
-            damageMultiplier *= effect.value;
-          } else {
-            attackSpeedMultiplier *= effect.value;
-          }
-          break;
-        case 'cooldown_reduction':
-          cooldownReduction += effect.value;
-          break;
-        case 'positive_effect_amplification':
-          positiveEffectAmplification += effect.value;
-          break;
-        case 'hp_regen':
-          regenPerSecond += effect.value / effect.tickSeconds;
-          shortestRegenTickSeconds = Math.min(shortestRegenTickSeconds, effect.tickSeconds);
-          break;
-      }
+  for (const effect of effects) {
+    switch (effect.type) {
+      case 'resistance_bonus':
+        resistance += effect.value;
+        break;
+      case 'attribute_multiplier':
+        if (effect.attribute === 'damage') {
+          damageMultiplier *= effect.value;
+        } else if (effect.attribute === 'health') {
+          maxHealthMultiplier *= effect.value;
+        } else {
+          attackSpeedMultiplier *= effect.value;
+        }
+        break;
+      case 'cooldown_reduction':
+        cooldownReduction += effect.value;
+        break;
+      case 'positive_effect_amplification':
+        positiveEffectAmplification += effect.value;
+        break;
+      case 'hp_regen':
+        regenPerSecond += effect.value / effect.tickSeconds;
+        shortestRegenTickSeconds = Math.min(shortestRegenTickSeconds, effect.tickSeconds);
+        break;
     }
   }
 
@@ -93,6 +101,7 @@ export function computeBonusesForUnit(statuses: readonly SynergyStatus[], unitSy
     resistance,
     damageMultiplier,
     attackSpeedMultiplier,
+    maxHealthMultiplier,
     cooldownReduction: Math.min(cooldownReduction, MAXIMUM_COOLDOWN_REDUCTION),
     positiveEffectAmplification,
     regenFraction: hasRegeneration ? regenPerSecond * shortestRegenTickSeconds : 0,

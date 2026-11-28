@@ -1,12 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { CombatSimulation } from '@combat/engine/CombatSimulation';
+import { createCombatUnit } from '@combat/units/createCombatUnit';
+import { DEFAULT_CHARACTERS } from '@data/defaults/characters';
 import { DEFAULT_GAME_CONFIG } from '@data/defaults/gameConfig';
+import { DEFAULT_SYNERGIES, INITIAL_SYNERGY_MAPPING } from '@data/defaults/synergies';
+import { gameConfigSchema } from '@data/schemas/gameConfig';
 import { SeededRandom } from '@shared/utils/random';
 import { buildSideUnits } from '../game/combatSetup';
 import { playBotPreparation } from '../players/botStrategy';
 import { buyFromShop, moveUnit, refillShop, refreshShop } from '../players/playerActions';
 import { cellAt, giveUnit, makeContext, makeGame, makePlayer } from '../testSupport';
-import { boardFightersOf, buildTowerCharacter, countOwnedTowers, TOWER_ID, towerIncomeOf } from './tower';
+import {
+  boardFightersOf,
+  buildTowerCharacter,
+  buildTowerCharacters,
+  countOwnedTowers,
+  isTowerId,
+  offeredTowersOf,
+  TOWER_ID,
+  towerDefinitionOf,
+  towerDefinitionsOf,
+  towerIncomeOf,
+} from './tower';
 
 const towerConfig = DEFAULT_GAME_CONFIG.tower;
 
@@ -65,7 +80,7 @@ describe('torre na loja', () => {
   });
 
   it('a torre tem definição própria para a interface, com vida e texto da configuração', () => {
-    const character = buildTowerCharacter(towerConfig);
+    const character = buildTowerCharacter(towerDefinitionOf(towerConfig, TOWER_ID));
     expect(character).toMatchObject({ id: TOWER_ID, name: 'Torre', stats: { health: towerConfig.health } });
     expect(character.ability.description).toContain(`+${towerConfig.incomePerRound} moedas`);
   });
@@ -230,5 +245,95 @@ describe('torre destruída', () => {
     const game = makeGame();
     game.resolveCombats();
     expect(game.concludeRound().towersLostByPlayerId).toEqual({});
+  });
+});
+
+describe('torres personalizadas', () => {
+  const withActiveVariants = {
+    ...DEFAULT_GAME_CONFIG,
+    tower: { ...towerConfig, variants: towerConfig.variants.map((variant) => ({ ...variant, active: true })) },
+  };
+  const roster = new Map([...DEFAULT_CHARACTERS, ...buildTowerCharacters(withActiveVariants.tower)].map((character) => [character.id, character]));
+  const towerBuffsById = new Map(towerDefinitionsOf(withActiveVariants.tower).map((tower) => [tower.id, tower.buffs]));
+  const setupContext = { charactersById: roster, synergies: DEFAULT_SYNERGIES, synergyMapping: INITIAL_SYNERGY_MAPPING, towerBuffsById };
+
+  const unitsWith = (...towers: { id: string; cell: ReturnType<typeof cellAt> }[]) => {
+    const player = makePlayer();
+    const near = giveUnit(player, 'bixo', { kind: 'board', cell: cellAt(1, 3) });
+    const far = giveUnit(player, 'vinicius', { kind: 'board', cell: cellAt(4, 5) });
+    towers.forEach((tower) => giveUnit(player, tower.id, { kind: 'board', cell: tower.cell }));
+    const specs = buildSideUnits(player, 'B', setupContext);
+    const unitOf = (owned: { id: string }) => createCombatUnit(specs.find((spec) => spec.id === `B-${owned.id}`)!);
+    return { near: unitOf(near), far: unitOf(far), specs };
+  };
+
+  it('o bônus vale só para quem está ao alcance da torre, mesmo com o lado espelhado', () => {
+    const plain = unitsWith();
+    const buffed = unitsWith({ id: 'torre_cafe', cell: cellAt(1, 2) });
+    expect(buffed.near.stats.attacksPerSecond).toBeCloseTo(plain.near.stats.attacksPerSecond * 1.12);
+    expect(buffed.far.stats.attacksPerSecond).toBeCloseTo(plain.far.stats.attacksPerSecond);
+  });
+
+  it('bônus de vida aumenta a vida máxima e a vida inicial; a regeneração também chega', () => {
+    const plain = unitsWith();
+    const buffed = unitsWith({ id: 'torre_enfermaria', cell: cellAt(1, 2) });
+    expect(buffed.near.stats.maxHealth).toBeCloseTo(plain.near.stats.maxHealth * 1.15);
+    expect(buffed.near.health).toBeCloseTo(buffed.near.stats.maxHealth);
+    expect(buffed.near.regenIntervalMs).toBe(3000);
+    expect(buffed.far.stats.maxHealth).toBeCloseTo(plain.far.stats.maxHealth);
+  });
+
+  it('sem raio, o bônus alcança o time inteiro; a própria torre não recebe nada e usa o próprio sprite', () => {
+    const everywhere = new Map(towerBuffsById).set('torre_cafe', [{ effect: { type: 'attribute_multiplier' as const, attribute: 'damage' as const, value: 2 } }]);
+    const player = makePlayer();
+    const far = giveUnit(player, 'vinicius', { kind: 'board', cell: cellAt(4, 5) });
+    const tower = giveUnit(player, 'torre_cafe', { kind: 'board', cell: cellAt(0, 0) });
+    const specs = buildSideUnits(player, 'A', { ...setupContext, towerBuffsById: everywhere });
+    const plain = unitsWith().far;
+    expect(createCombatUnit(specs.find((spec) => spec.id === `A-${far.id}`)!).stats.damage).toBeCloseTo(plain.stats.damage * 2);
+    const towerUnit = createCombatUnit(specs.find((spec) => spec.id === `A-${tower.id}`)!);
+    expect(towerUnit).toMatchObject({ isStructure: true, auxiliarySpriteKey: 'torre_cafe' });
+  });
+
+  it('a loja sorteia entre as torres ativas, com o preço de cada uma, e o máximo vale para todas juntas', () => {
+    const context = { ...makeContext(), config: { ...withActiveVariants, tower: { ...withActiveVariants.tower, offerChancePercent: 100, maximumOwned: 2 } } };
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 40; seed++) {
+      const player = makePlayer();
+      refillShop(player, { ...context, towerRandom: new SeededRandom(`variantes-${seed}`) });
+      const towers = player.shop.filter((offer) => offer && isTowerId(offer.characterId));
+      expect(towers).toHaveLength(2);
+      for (const offer of towers) {
+        seen.add(offer!.characterId);
+        expect(offer!.cost).toBe(towerDefinitionOf(withActiveVariants.tower, offer!.characterId).cost);
+      }
+    }
+    expect([...seen].sort()).toEqual(['torre', 'torre_cafe', 'torre_enfermaria']);
+  });
+
+  it('desligadas, elas não aparecem na loja', () => {
+    expect(offeredTowersOf(towerConfig).map((tower) => tower.id)).toEqual([TOWER_ID]);
+  });
+
+  it('cada tipo rende o próprio valor', () => {
+    const player = makePlayer();
+    giveUnit(player, TOWER_ID, { kind: 'board', cell: cellAt(0, 0) });
+    giveUnit(player, 'torre_cafe', { kind: 'board', cell: cellAt(1, 0) });
+    giveUnit(player, 'torre_enfermaria', { kind: 'board', cell: cellAt(2, 0) });
+    expect(towerIncomeOf(player, withActiveVariants.tower)).toBe(towerConfig.incomePerRound + 1);
+  });
+
+  it('o texto da carta conta os bônus e o alcance', () => {
+    const cafe = buildTowerCharacter(towerDefinitionOf(withActiveVariants.tower, 'torre_cafe'));
+    expect(cafe.ability.description).toContain('+12% de velocidade de ataque (aliados a até 2 casas)');
+    const infirmary = buildTowerCharacter(towerDefinitionOf(withActiveVariants.tower, 'torre_enfermaria'));
+    expect(infirmary.ability.description).not.toContain('por rodada enquanto');
+    expect(cafe.ability.description).toContain('Rende +1 moeda por rodada');
+  });
+
+  it('o cadastro recusa ids e nomes repetidos', () => {
+    const [first] = towerConfig.variants;
+    expect(gameConfigSchema.safeParse({ ...DEFAULT_GAME_CONFIG, tower: { ...towerConfig, variants: [first!, first!] } }).success).toBe(false);
+    expect(gameConfigSchema.safeParse({ ...DEFAULT_GAME_CONFIG, tower: { ...towerConfig, variants: [{ ...first!, name: 'Torre' }] } }).success).toBe(false);
   });
 });

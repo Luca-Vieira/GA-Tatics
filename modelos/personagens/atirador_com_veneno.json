@@ -1,0 +1,27 @@
+{
+  "id": "modelo_atirador",
+  "name": "Modelo Atirador",
+  "archetype": "Atirador",
+  "description": "Ataca de longe em linha; os golpes às vezes envenenam.",
+  "category": "ranged",
+  "rarity": "common",
+  "active": false,
+  "stats": { "health": 4, "damage": 5, "attackSpeed": 5, "range": 4, "mobility": 3 },
+  "behavior": { "movement": "kite", "targetPriority": "lowest_health", "preferredDistance": 3 },
+  "attack": {
+    "shape": "front_line",
+    "maxTargets": 2,
+    "splashDamageFraction": 0.4,
+    "poisonOnHit": { "chance": 0.2, "damageFraction": 0.2, "tickSeconds": 1, "durationSeconds": 3 }
+  },
+  "ability": {
+    "id": "modelo_chuva",
+    "name": "Chuva de projéteis",
+    "description": "Causa dano em todos os inimigos de uma região.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 8,
+    "cast": { "target": "enemy_cluster", "range": 5, "areaRadius": 1 },
+    "effects": [{ "type": "damage", "targets": "enemies_in_area", "multiplier": 1.2 }],
+    "visual": { "kind": "rain", "color": "#38bdf8", "icon": "🌧️", "projectileIcon": "➶" }
+  }
+}

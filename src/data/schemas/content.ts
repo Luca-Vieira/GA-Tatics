@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { characterSchema, spriteDefinitionSchema } from './character';
+import { DEFAULT_MAPS } from '../defaults/maps';
 import { gameConfigSchema } from './gameConfig';
+import { MAXIMUM_MAPS, mapSchema } from './map';
 import { synergyRotationConfigSchema, synergySchema, validateSynergyMapping } from './synergy';
 
 /** Quantidade de sinergias aceita: de 3 a 5 (o painel do jogo tem espaço para até 5 linhas). */
@@ -9,8 +11,10 @@ export const MAXIMUM_SYNERGY_COUNT = 5;
 /** Sprites vêm do servidor: `/sprites/<id>-<hash de 12 caracteres>.png` (o servidor guarda e entrega o arquivo). */
 export const SPRITE_PATH_PATTERN = /^\/sprites\/[a-z0-9_]{1,40}-[0-9a-f]{12}\.png$/;
 export const AUXILIARY_SPRITE_KEY_PATTERN = /^[a-z0-9_]{1,40}$/;
-/** Id usado pela torre da loja; nenhum personagem pode usá-lo. */
-export const RESERVED_CHARACTER_IDS: readonly string[] = ['torre'];
+/** Ids das torres da loja ("torre" e "torre_..."); nenhum personagem pode usá-los. */
+export function isReservedCharacterId(characterId: string): boolean {
+  return characterId === 'torre' || characterId.startsWith('torre_');
+}
 
 /**
  * Tudo o que o painel de administração pode editar e que o servidor entrega aos clientes:
@@ -24,6 +28,8 @@ export const gameContentSchema = z
     rotation: synergyRotationConfigSchema,
     /** Rotação 0: personagem → sinergia. Precisa cobrir todos os personagens ativos, com ao menos 4 em cada sinergia. */
     initialSynergyMapping: z.record(z.string(), z.string()),
+    /** Mapas (aparência do tabuleiro e do fundo). Os ativos são os liberados para as partidas. */
+    maps: z.array(mapSchema).min(1).max(MAXIMUM_MAPS).default(() => structuredClone([...DEFAULT_MAPS])),
     /** Sprites do que não é personagem (cavalo, protagonista, torre...), por chave (veja `auxiliarySprites.ts`). */
     auxiliarySprites: z.record(z.string().regex(AUXILIARY_SPRITE_KEY_PATTERN, 'Chave de sprite auxiliar inválida.'), spriteDefinitionSchema).default({}),
   })
@@ -36,7 +42,7 @@ export const gameContentSchema = z
         addIssue(['characters', position, 'id'], `Id de personagem repetido: ${character.id}`);
       }
       seenIds.add(character.id);
-      if (RESERVED_CHARACTER_IDS.includes(character.id)) {
+      if (isReservedCharacterId(character.id)) {
         addIssue(['characters', position, 'id'], `O id "${character.id}" é reservado.`);
       }
       if (character.sprite && !SPRITE_PATH_PATTERN.test(character.sprite.path)) {
@@ -57,6 +63,17 @@ export const gameContentSchema = z
       }
       synergyIds.add(synergy.id);
     });
+
+    const mapIds = new Set<string>();
+    content.maps.forEach((map, position) => {
+      if (mapIds.has(map.id)) {
+        addIssue(['maps', position, 'id'], `Id de mapa repetido: ${map.id}`);
+      }
+      mapIds.add(map.id);
+    });
+    if (!content.maps.some((map) => map.active)) {
+      addIssue(['maps'], 'Libere ao menos um mapa para as partidas.');
+    }
 
     checkMapping(content.initialSynergyMapping, ['initialSynergyMapping'], content, addIssue);
     if (content.rotation.override) {

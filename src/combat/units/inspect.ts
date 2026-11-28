@@ -3,8 +3,8 @@
  * sobre `CombatSimulation.getUnits()`, sem influenciar o resultado.
  */
 import type { StatusKind, AbilityDefinition } from '@data/schemas/ability';
-import type { AttackDefinition } from '@data/schemas/attack';
-import { attackAreaCells, describeAttackArea, type AttackFacing } from '@shared/utils/attackArea';
+import { describeAttack, type AttackDefinition } from '@data/schemas/attack';
+import { attackAreaCells, type AttackFacing } from '@shared/utils/attackArea';
 import type { Hex } from '@shared/utils/hex';
 import { computeModifiers } from '../effects/modifiers';
 import { calculateDamageTaken } from './damage';
@@ -70,7 +70,7 @@ export function inspectCombatUnit(unit: Readonly<CombatUnit>, nowMs: number): Co
     range: cannotAttack ? 0 : unit.stats.range,
     damageReduction: 1 - calculateDamageTaken(1, unit.resistance, modifiers.damageReduction),
     attack: unit.attack,
-    attackDescription: cannotAttack ? 'Não ataca.' : describeAttackArea(unit.attack.shape, unit.stats.range, unit.attack.maxTargets, unit.attack.splashDamageFraction),
+    attackDescription: cannotAttack ? 'Não ataca.' : describeAttack(unit.attack, unit.stats.range),
     attackAreaCells: cannotAttack ? [] : attackAreaCells(unit.cell, unit.attack.shape, unit.stats.range, unit.facing, unit.sweep),
     facing: unit.facing,
     ability: unit.ability,

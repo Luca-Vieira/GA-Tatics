@@ -11,11 +11,14 @@
   "ability": {
     "id": "sleep_on_the_job",
     "name": "Dormir no serviço",
-    "description": "Congelamento: escolhe um inimigo e o coloca para dormir, impedindo-o de atacar ou se movimentar temporariamente.",
+    "description": "Congelamento: escolhe um inimigo e o coloca para dormir, impedindo-o de atacar ou se movimentar temporariamente. No lugar fica um Cantinho da soneca: inimigos que passam por ali ficam lentos (até 2 por vez).",
     "activation": { "type": "cooldown", "requires": "always" },
     "cooldownSeconds": 4.5,
     "cast": { "target": "current_target", "range": 4 },
-    "effects": [{ "type": "status", "targets": "center_unit", "status": "sleep", "durationSeconds": 3 }],
+    "effects": [
+      { "type": "status", "targets": "center_unit", "status": "sleep", "durationSeconds": 3 },
+      { "type": "create_terrain", "name": "Cantinho da soneca", "affects": "enemies", "status": "slow", "value": 0.25, "lingerSeconds": 1, "radius": 1, "durationSeconds": 4.5, "maximumPerOwner": 2, "color": "#a78bfa", "icon": "🛌" }
+    ],
     "visual": { "kind": "burst", "color": "#67e8f9", "icon": "💤", "projectileIcon": "❄️" }
   }
 }

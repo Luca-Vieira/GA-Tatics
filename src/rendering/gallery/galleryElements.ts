@@ -88,6 +88,9 @@ export function createPortrait(options: PortraitOptions): HTMLElement {
   image.alt = options.name;
   image.addEventListener('error', () => portrait.replaceChildren(placeholder()));
   image.src = options.spriteUrlOf(options.sprite.path);
+  if (options.sprite.mirrored) {
+    image.style.transform = 'scaleX(-1)';
+  }
   portrait.append(image);
   return portrait;
 }

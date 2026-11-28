@@ -15,7 +15,7 @@ import { countsForResult, turnTowards, type CombatUnit, type UnitSpec } from '..
 import { COMBAT_STEP_MS, DEFAULT_COMBAT_TIME_LIMIT_MS } from './constants';
 import type { CombatEvent } from './events';
 import { buildCombatResult, type CombatResult } from './result';
-import type { CombatWorld, DamageOptions, DecoyRequest, SummonSpawnRequest, TrapRequest } from './world';
+import type { CombatWorld, DamageOptions, DecoyRequest, SummonSpawnRequest, TerrainRequest, TrapRequest } from './world';
 
 export interface CombatConfig {
   /** Semente do combate: toda aleatoriedade das regras (ataques do Moço, confusão) vem dela. */
@@ -28,6 +28,12 @@ interface ActiveTrap extends TrapRequest {
   readonly id: string;
   readonly armedAtMs: number;
   readonly expiresAtMs: number;
+}
+
+interface ActiveTerrain extends TerrainRequest {
+  readonly id: string;
+  readonly expiresAtMs: number;
+  readonly cellKeys: ReadonlySet<string>;
 }
 
 const MELEE_RANGE = 1;
@@ -45,6 +51,8 @@ export class CombatSimulation implements CombatWorld {
   private readonly unitsById = new Map<string, CombatUnit>();
   private readonly cellOccupants = new Map<string, string>();
   private readonly traps: ActiveTrap[] = [];
+  private readonly terrains: ActiveTerrain[] = [];
+  private terrainCount = 0;
   private readonly timeLimitMs: number;
   private pendingEvents: CombatEvent[] = [];
   private elapsedMs = 0;
@@ -106,6 +114,7 @@ export class CombatSimulation implements CombatWorld {
     this.processRegeneration();
     this.expireSummons();
     this.processTraps();
+    this.processTerrains();
     for (const unit of this.unitsInActionOrder()) {
       this.updateUnit(unit);
     }
@@ -183,6 +192,18 @@ export class CombatSimulation implements CombatWorld {
     };
     this.traps.push(trap);
     this.emit({ type: 'trap', timeMs: this.elapsedMs, trapId: trap.id, change: 'placed', cell: trap.cell, side: trap.side });
+  }
+
+  placeTerrain(request: TerrainRequest): void {
+    this.makeRoomForTerrain(request);
+    const terrain: ActiveTerrain = {
+      ...request,
+      id: `terrain${++this.terrainCount}`,
+      expiresAtMs: this.elapsedMs + request.lifetimeMs,
+      cellKeys: new Set(request.cells.map(hexKey)),
+    };
+    this.terrains.push(terrain);
+    this.emitTerrainEvent(terrain, 'placed');
   }
 
   spawnDecoy(request: DecoyRequest): void {
@@ -369,6 +390,47 @@ export class CombatSimulation implements CombatWorld {
     this.emit({ type: 'trap', timeMs: this.elapsedMs, trapId: trap.id, change, cell: trap.cell, side: trap.side });
   }
 
+  /** Tira os terrenos mais antigos do mesmo personagem e nome até caber mais um. */
+  private makeRoomForTerrain(request: TerrainRequest): void {
+    const ownedOldestFirst = this.terrains.filter((terrain) => terrain.ownerId === request.ownerId && terrain.name === request.name);
+    const excess = ownedOldestFirst.length - request.maximumPerOwner + 1;
+    ownedOldestFirst.slice(0, Math.max(0, excess)).forEach((terrain) => this.removeTerrain(terrain));
+  }
+
+  /** Quem está em cima recebe o estado a cada passo; ao sair, ele ainda vale pelo tempo de sobra. */
+  private processTerrains(): void {
+    for (const terrain of [...this.terrains]) {
+      if (this.elapsedMs >= terrain.expiresAtMs) {
+        this.removeTerrain(terrain);
+        continue;
+      }
+      for (const unit of this.unitList) {
+        if (unit.alive && isAffectedByTerrain(unit, terrain) && terrain.cellKeys.has(hexKey(unit.cell))) {
+          this.refreshTerrainStatus(unit, terrain);
+        }
+      }
+    }
+  }
+
+  /** O evento de estado sai só quando ele começa, e não a cada passo em cima do terreno. */
+  private refreshTerrainStatus(unit: CombatUnit, terrain: ActiveTerrain): void {
+    const wasActive = findStatus(unit, terrain.status.kind) !== undefined;
+    applyStatusToUnit(unit, terrain.ownerId, terrain.status, this.elapsedMs);
+    if (!wasActive) {
+      this.emit({ type: 'status', timeMs: this.elapsedMs, unitId: unit.id, status: terrain.status.kind, change: 'applied' });
+    }
+  }
+
+  private removeTerrain(terrain: ActiveTerrain): void {
+    this.terrains.splice(this.terrains.indexOf(terrain), 1);
+    this.emitTerrainEvent(terrain, 'removed');
+  }
+
+  private emitTerrainEvent(terrain: ActiveTerrain, change: 'placed' | 'removed'): void {
+    const { id: terrainId, name, side, center, cells, color, icon } = terrain;
+    this.emit({ type: 'terrain', timeMs: this.elapsedMs, terrainId, change, name, side, center, cells, color, icon });
+  }
+
   private findFreeCellNear(anchor: Hex, towards: Hex): Hex | null {
     const freeCells = BOARD_CELLS.filter((cell) => this.isCellFree(cell));
     freeCells.sort(
@@ -483,9 +545,26 @@ export class CombatSimulation implements CombatWorld {
       this.dealDamage(attacker, extraTarget, roll.rawDamage * attacker.attack.splashDamageFraction, { cause: 'splash' });
     }
     if (target.alive) {
+      this.rollPoisonOnHit(attacker, target, modifiers);
       castOnFirstHit(this, attacker, target);
     }
     return true;
+  }
+
+  /** Veneno do ataque básico: só sorteia para quem tem a chance, então não muda o sorteio dos outros personagens. */
+  private rollPoisonOnHit(attacker: CombatUnit, target: CombatUnit, modifiers: UnitModifiers): void {
+    const poison = attacker.attack.poisonOnHit;
+    if (!poison || !this.random.chance(poison.chance)) {
+      return;
+    }
+    this.applyStatus(attacker, target, {
+      kind: 'poison',
+      durationMs: poison.durationSeconds * 1000,
+      value: attacker.stats.damage * modifiers.damageMultiplier * poison.damageFraction,
+      tickMs: poison.tickSeconds * 1000,
+      charges: null,
+      healRatio: 0,
+    });
   }
 
   /** Outros inimigos que o mesmo golpe acerta (formatos com mais de um alvo), do mais próximo do alvo ao mais distante. */
@@ -645,6 +724,13 @@ export class CombatSimulation implements CombatWorld {
   private hasAliveUnits(side: BoardSide): boolean {
     return this.unitList.some((unit) => unit.side === side && unit.alive && countsForResult(unit));
   }
+}
+
+function isAffectedByTerrain(unit: CombatUnit, terrain: TerrainRequest): boolean {
+  if (terrain.affects === 'everyone') {
+    return true;
+  }
+  return (unit.side === terrain.side) === (terrain.affects === 'allies');
 }
 
 function compareById(first: { readonly id: string }, second: { readonly id: string }): number {

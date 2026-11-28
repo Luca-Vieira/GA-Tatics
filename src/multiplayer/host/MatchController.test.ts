@@ -199,3 +199,107 @@ describe('partida inteira e desconexões', () => {
     expect(typesOf('p1')).not.toContain('combat_started');
   });
 });
+
+describe('ver a luta de outro jogador', () => {
+  const messagesOfType = <Type extends ServerMessage['type']>(messages: readonly ServerMessage[], type: Type) =>
+    messages.filter((message): message is Extract<ServerMessage, { type: Type }> => message.type === type);
+
+  /** Leva a partida até o combate e devolve a luta de p1 e um jogador que está na outra. */
+  function matchInCombat() {
+    const match = createMatch(['p1']);
+    match.controller.start();
+    match.scheduler.advance(40_000);
+    const ownDuel = messagesOfType(match.messagesOf('p1'), 'combat_started').at(-1)!.duel!;
+    const otherId = match.game.players.find((player) => ![ownDuel.topId, ownDuel.bottomId].includes(player.id))!.id;
+    return { ...match, otherId };
+  }
+
+  it('quem está vivo recebe a luta pedida enquanto ela acontece, sem deixar de ser jogador', () => {
+    const { controller, messagesOf, otherId } = matchInCombat();
+    expect(controller.watchAsPlayer('p1', otherId)).toBe(true);
+    const peek = messagesOfType(messagesOf('p1'), 'combat_peek').at(-1)!;
+    expect(peek.playerId).toBe(otherId);
+    expect([peek.duel.topId, peek.duel.bottomId]).toContain(otherId);
+    expect(messagesOfType(messagesOf('p1'), 'watching')).toHaveLength(0);
+  });
+
+  it('a rodada espera a luta que alguém foi ver', () => {
+    const { controller, scheduler, messagesOf, otherId } = matchInCombat();
+    controller.watchAsPlayer('p1', otherId);
+    const durations = [messagesOfType(messagesOf('p1'), 'combat_started'), messagesOfType(messagesOf('p1'), 'combat_peek')].map((list) => list.at(-1)!.duel!.result.durationMs);
+    const longestMs = Math.max(MINIMUM_COMBAT_PHASE_MS, ...durations);
+    scheduler.advance(longestMs - 1);
+    expect(messagesOfType(messagesOf('p1'), 'round_result')).toHaveLength(0);
+    scheduler.advance(1);
+    expect(messagesOfType(messagesOf('p1'), 'round_result')).toHaveLength(1);
+  });
+
+  it('fora do combate, ou com a luta já encerrada, o pedido é recusado', () => {
+    const { controller, messagesOf } = createMatch(['p1']);
+    controller.start();
+    controller.watchAsPlayer('p1', 'p2');
+    expect(messagesOf('p1').at(-1)).toEqual({ type: 'action_result', ok: false, reason: 'player_not_in_combat' });
+  });
+
+  it('jogador inexistente não é aceito', () => {
+    const { controller } = createMatch(['p1']);
+    controller.start();
+    expect(controller.watchAsPlayer('p1', 'p99')).toBe(false);
+  });
+
+  it('quem assiste e troca de jogador na tela de resultado não é jogado para uma preparação vazia', () => {
+    const { controller, scheduler, messagesOf } = matchWithEliminatedPlayer();
+    scheduler.advance(40_000);
+    for (let step = 0; step < 200 && messagesOfType(messagesOf('p1'), 'round_result').length < 2; step++) {
+      scheduler.advance(500);
+    }
+    const before = messagesOf('p1').length;
+    controller.watchAsPlayer('p1', 'p3');
+    expect(messagesOf('p1').slice(before)).toEqual([{ type: 'watching', playerId: 'p3' }]);
+  });
+
+  /** p1 fica com uma vida e sem ninguém em campo: perde a primeira rodada e está fora. */
+  function matchWithEliminatedPlayer() {
+    const match = createMatch(['p1', 'p2']);
+    match.controller.start();
+    const loser = match.game.getPlayer('p1');
+    loser.lives = 1;
+    loser.units = [];
+    loser.coins = 0;
+    // O adversário precisa de ao menos um lutador, senão a rodada empata.
+    giveUnit(match.game.getPlayer('p2'), 'bixo', { kind: 'board', cell: cellAt(2, 3) });
+    for (let step = 0; step < 200 && match.game.round === 1; step++) {
+      match.scheduler.advance(1000);
+    }
+    return match;
+  }
+
+  it('quem foi eliminado passa a acompanhar alguém vivo já na preparação seguinte, vendo o tabuleiro sem a reserva', () => {
+    const { game, messagesOf } = matchWithEliminatedPlayer();
+    expect(game.getPlayer('p1').eliminatedInRound).toBe(1);
+    const watching = messagesOfType(messagesOf('p1'), 'watching').at(-1)!;
+    expect(game.getPlayer(watching.playerId).eliminatedInRound).toBeNull();
+    const board = messagesOfType(messagesOf('p1'), 'scout_board').at(-1)!;
+    expect(board.playerId).toBe(watching.playerId);
+    expect(board.units.every((unit) => unit.location.kind === 'board')).toBe(true);
+    const lastRound = messagesOf('p1').map((message) => message.type).lastIndexOf('round_started');
+    expect(messagesOf('p1').slice(lastRound).map((message) => message.type)).not.toContain('player_view');
+  });
+
+  it('o eliminado troca de quem acompanha a qualquer momento, vê as mudanças na hora e depois a luta', () => {
+    const { controller, game, scheduler, messagesOf } = matchWithEliminatedPlayer();
+    controller.watchAsPlayer('p1', 'p2');
+    const boardsOfP2 = () => messagesOfType(messagesOf('p1'), 'scout_board').filter((message) => message.playerId === 'p2');
+    const before = boardsOfP2().length;
+    const unit = game.getPlayer('p2').units.find((candidate) => candidate.location.kind === 'board')!;
+    controller.handleAction('p2', { type: 'move', unitId: unit.id, destination: { kind: 'board', cell: cellAt(0, 4) } });
+    expect(boardsOfP2()).toHaveLength(before + 1);
+    expect(boardsOfP2().at(-1)!.units).toContainEqual(expect.objectContaining({ id: unit.id, location: { kind: 'board', cell: cellAt(0, 4) } }));
+    expect(JSON.stringify(boardsOfP2())).not.toContain('shop');
+
+    scheduler.advance(40_000);
+    const duel = messagesOfType(messagesOf('p1'), 'combat_started').at(-1)!.duel!;
+    expect([duel.topId, duel.bottomId]).toContain('p2');
+  });
+});
+

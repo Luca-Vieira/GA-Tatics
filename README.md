@@ -30,9 +30,12 @@ A cada rodada você **prepara** a equipe e depois assiste ao **combate automáti
 
 ### Extras
 
-- 🏗️ **Torre:** estrutura rara na loja que rende moedas enquanto estiver de pé. Os inimigos podem atacá-la; se for destruída, some para sempre e você recebe 2 moedas na rodada seguinte.
-- 📖 **Personagens:** galeria no saguão para consultar e comparar o elenco.
-- 🔊 **Som:** música e efeitos, com controles separados.
+- 🏗️ **Torres:** estrutura rara na loja que rende moedas enquanto estiver de pé. Os inimigos podem atacá-la; se for destruída, some para sempre e você recebe moedas de volta na rodada seguinte. O painel cria torres personalizadas, com bônus (vida, dano, velocidade...) para os aliados.
+- 🗺️ **Mapas:** Escritório, Praia, Vulcão, Campo e Lua, sorteados ou escolhidos por quem cria a sala. O painel edita e cria outros.
+- 👁️ **Assistir:** durante o combate, toque no nome de outro jogador para ver a luta dele; quem foi eliminado acompanha quem quiser, a qualquer momento.
+- 📋 **Novidades:** notas das atualizações do jogo e das mudanças publicadas pelo painel.
+- 📖 **Personagens:** galeria no saguão para consultar e comparar o elenco publicado.
+- 🔊 **Som:** música calma na preparação, intensa no combate, e efeitos para cada momento, com controles separados.
 - 🧑‍💼 **Elenco com habilidades próprias:** do tanque que "senta para descansar" ao **Derson**, que cria um clone provocador.
 - 🎲 **Regras de sala:** vidas extras, mais tempo de preparação ou de combate, mais dinheiro e mais status.
 
@@ -46,7 +49,7 @@ A cada rodada você **prepara** a equipe e depois assiste ao **combate automáti
 | **Contra bots** | Partida completa no próprio navegador, sem servidor. |
 | **Determinismo** | O combate roda em passos fixos com semente: o resultado oficial é igual para todos. |
 | **Dados editáveis** | Personagens, habilidades, sinergias e configuração são **dados validados** (Zod), não código. |
-| **Painel de admin** | Cria e edita personagens e sinergias por formulário ou JSON, envia e **ajusta sprites (PNG)** com prévia, configura ícones, encerra salas em andamento e baixa uma **referência** do que dá para criar. Ao publicar, os jogadores conectados recebem o aviso para recarregar. |
+| **Painel de admin** | Cria e edita personagens, sinergias, **torres, minions e mapas** por formulário ou JSON, envia, **espelha e ajusta sprites (PNG)** com prévia, configura ícones, encerra salas em andamento e baixa uma **referência** do que dá para criar. Publica **com ou sem nota de atualização**; os jogadores conectados recebem o aviso para recarregar. |
 | **Balanceamento por testes** | Faixas de vitória por personagem, por sinergia e por partida são verificadas automaticamente. |
 
 ---
@@ -70,11 +73,9 @@ Em outro terminal, suba o servidor de partidas:
 npm run server
 ```
 
-No jogo, informe seu nome, conecte em `ws://localhost:8787` e use o hub (partida rápida, criar sala ou entrar numa da lista). Para jogar com outras pessoas da mesma rede local:
+No jogo, informe seu nome, conecte em `ws://localhost:8787` e use o hub (partida rápida, criar sala ou entrar numa da lista).
 
-```bash
-npm run server -- --lan
-```
+**Para jogar com outras pessoas na mesma rede (LAN)**, siga o guia **[Como hospedar uma partida na rede local](docs/jogar-na-rede-local.md)**. Resumindo, o servidor precisa de `--lan` e a página, de `--host`.
 
 > ⚠️ O servidor **não tem login de jogador nem HTTPS**. Use só em rede de confiança.
 
@@ -118,6 +119,7 @@ src/
 ├── rendering/    cenas do Phaser: hub, partida, painéis, sprites e animações
 └── admin/        painel de administração (formulários, importação, referência)
 admin/            página HTML do painel
+modelos/          modelos de personagem para importar no painel
 tools/            servidor e simuladores
 ```
 
@@ -143,13 +145,15 @@ Princípios que o projeto segue:
 | [`merge-do-escritorio-gdd(1).md`](merge-do-escritorio-gdd(1).md) | Game Design Document original |
 | [`decisoes-de-design.md`](decisoes-de-design.md) | Decisões tomadas durante o desenvolvimento (regras, balanceamento, servidor, admin, hub) |
 | [`o-que-falta.md`](o-que-falta.md) | Estado atual, pendências e armadilhas conhecidas |
+| [`docs/jogar-na-rede-local.md`](docs/jogar-na-rede-local.md) | Como hospedar uma partida na rede local (LAN) |
 | [`docs/hospedagem-do-servidor.md`](docs/hospedagem-do-servidor.md) | Como publicar o jogo numa VPS |
+| [`modelos/`](modelos/README.md) | Modelos de personagem prontos para copiar e importar no painel |
 
 ---
 
 ## 🗺️ Status
 
-Funcionando: combate, partida de 2 a 8 jogadores, loja com congelamento, fusão, sinergias com rotação, torre, regras de sala, multiplayer com hub e espectador, galeria, áudio, painel de administração e sprites.
+Funcionando: combate (com terrenos criados por habilidades), partida de 2 a 8 jogadores, loja com congelamento, fusão, sinergias com rotação, torres, mapas, regras de sala, multiplayer com hub e espectador, assistir outras lutas, notas de atualização, galeria, áudio, painel de administração e sprites.
 Em aberto: reconexão no meio da partida, arte final e testes em celulares reais.
 
 <div align="center">

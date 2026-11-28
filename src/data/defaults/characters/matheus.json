@@ -7,7 +7,12 @@
   "rarity": "common",
   "stats": { "health": 5, "damage": 5, "attackSpeed": 4, "range": 4, "mobility": 4 },
   "behavior": { "movement": "kite", "targetPriority": "cluster", "preferredDistance": 3 },
-  "attack": { "shape": "dashed_center", "maxTargets": 2, "splashDamageFraction": 0.5 },
+  "attack": {
+    "shape": "dashed_center",
+    "maxTargets": 2,
+    "splashDamageFraction": 0.5,
+    "poisonOnHit": { "chance": 0.25, "damageFraction": 0.2, "tickSeconds": 1, "durationSeconds": 3 }
+  },
   "ability": {
     "id": "area_filth",
     "name": "Sujeira em área",

@@ -191,7 +191,7 @@ describe('quem assiste', () => {
     expect(registry.spectate('extra', 'AAAA', 'segredo')).toMatchObject({ ok: true });
   });
 
-  it('troca de quem acompanha; jogador inexistente e quem joga são recusados', () => {
+  it('troca de quem acompanha; jogador inexistente e quem não está na sala são recusados', () => {
     const { registry, scheduler, of } = createRegistry();
     const room = startedRoom(registry, ['c1']);
     registry.spectate('c9', 'AAAA');
@@ -201,7 +201,7 @@ describe('quem assiste', () => {
     const duel = of('c9', 'combat_started').at(-1)!.duel;
     expect(duel === null || [duel.topId, duel.bottomId].includes('p3')).toBe(true);
     expect(room.watchPlayer('c9', 'p99')).toEqual({ ok: false, code: 'unknown_player' });
-    expect(room.watchPlayer('c1', 'p2')).toEqual({ ok: false, code: 'not_spectating' });
+    expect(room.watchPlayer('estranho', 'p2')).toEqual({ ok: false, code: 'not_spectating' });
   });
 
   it('quando a partida acaba, recebe a colocação e fica livre para entrar em outra sala', () => {

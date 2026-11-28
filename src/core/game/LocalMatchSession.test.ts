@@ -14,6 +14,10 @@ function recordEvents(session: LocalMatchSession) {
       events.push('combat');
       duels.push(duel);
     },
+    combatPeekStarted: (playerId, duel) => {
+      events.push(`peek:${playerId}`);
+      duels.push(duel);
+    },
     roundConcluded: (summary) => {
       events.push('result');
       summaries.push(summary);

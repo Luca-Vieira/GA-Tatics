@@ -1,6 +1,6 @@
 import { characterSchema, type CharacterDefinition } from '@data/schemas/character';
 import { gameConfigSchema } from '@data/schemas/gameConfig';
-import { MAXIMUM_SYNERGY_COUNT, MINIMUM_SYNERGY_COUNT, RESERVED_CHARACTER_IDS, validateGameContent, type GameContent } from '@data/schemas/content';
+import { MAXIMUM_SYNERGY_COUNT, MINIMUM_SYNERGY_COUNT, isReservedCharacterId, validateGameContent, type GameContent } from '@data/schemas/content';
 import { synergyRotationConfigSchema, synergySchema } from '@data/schemas/synergy';
 import { z } from 'zod';
 
@@ -227,7 +227,7 @@ export function importCharacters(content: GameContent, text: string, options: Im
       return;
     }
     const character = options.asInactive ? { ...parsed.data, active: false } : parsed.data;
-    if (RESERVED_CHARACTER_IDS.includes(character.id)) {
+    if (isReservedCharacterId(character.id)) {
       errors.push(`${label}: o id "${character.id}" é reservado.`);
     }
     if (idsInImport.has(character.id)) {

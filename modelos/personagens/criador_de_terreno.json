@@ -1,0 +1,36 @@
+{
+  "id": "modelo_terreno",
+  "name": "Modelo Terreno",
+  "archetype": "Controle de área",
+  "description": "Deixa poças no chão que fazem mal a quem passa.",
+  "category": "control",
+  "rarity": "rare",
+  "active": false,
+  "stats": { "health": 5, "damage": 5, "attackSpeed": 3, "range": 4, "mobility": 3 },
+  "behavior": { "movement": "kite", "targetPriority": "cluster", "preferredDistance": 3 },
+  "ability": {
+    "id": "modelo_cafe_derramado",
+    "name": "Café derramado",
+    "description": "Derrama uma poça onde há mais inimigos: quem pisa nela sofre dano aos poucos. Mantém até 2 poças.",
+    "activation": { "type": "cooldown", "requires": "always" },
+    "cooldownSeconds": 7,
+    "cast": { "target": "enemy_cluster", "range": 4 },
+    "effects": [
+      {
+        "type": "create_terrain",
+        "name": "Poça de café",
+        "affects": "enemies",
+        "status": "poison",
+        "value": 0.25,
+        "tickSeconds": 1,
+        "lingerSeconds": 1,
+        "radius": 1,
+        "durationSeconds": 5,
+        "maximumPerOwner": 2,
+        "color": "#92400e",
+        "icon": "☕"
+      }
+    ],
+    "visual": { "kind": "burst", "color": "#92400e", "icon": "☕" }
+  }
+}

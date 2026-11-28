@@ -1,4 +1,5 @@
 import type { CombatConfig } from '@combat/engine/CombatSimulation';
+import type { MapDefinition } from '@data/schemas/map';
 import type { BoardSide } from '@shared/constants/board';
 import type { ActionFailure } from '../players/playerActions';
 import type { UnitLocation } from '../players/playerState';
@@ -21,6 +22,8 @@ export interface HumanDuel {
   readonly topId: string;
   readonly bottomId: string;
   readonly combatConfig: CombatConfig;
+  /** Duração do combate, já conhecida porque o resultado sai da simulação. */
+  readonly durationMs: number;
   /** Quanto do combate já passou, em ms (quem começa a assistir no meio): a cena deve adiantar a animação até aqui. */
   readonly elapsedMs?: number;
 }
@@ -37,6 +40,14 @@ export interface SpriteSource {
   readonly offsetY: number;
   readonly anchorX: number;
   readonly anchorY: number;
+  /** A imagem é espelhada antes de tudo (arte enviada olhando para a esquerda). */
+  readonly mirrored?: boolean;
+}
+
+/** O mapa da partida e, nos mapas com imagem, o endereço dela. */
+export interface MatchScenery {
+  readonly map: MapDefinition;
+  readonly backgroundImageUrl: string | null;
 }
 
 export interface RoundResultDuel {
@@ -55,6 +66,7 @@ export interface RoundResultSummary {
   readonly eliminatedIds: readonly string[];
   /** Torres destruídas na rodada, por jogador. */
   readonly towersLostByPlayerId: Readonly<Record<string, number>>;
+  readonly towerCompensationByPlayerId: Readonly<Record<string, number>>;
 }
 
 /** Avisos da sessão para a cena. Todos chegam depois de o estado de `MatchSession.match` já estar atualizado. */
@@ -63,6 +75,8 @@ export interface SessionListener {
   preparationStarted(): void;
   /** O combate foi decidido. `humanDuel` é `null` quando o jogador descansa (ou está eliminado). */
   combatStarted(humanDuel: HumanDuel | null): void;
+  /** Resposta a `watchCombat`: a luta pedida, para mostrar no lugar da própria. */
+  combatPeekStarted(playerId: string, duel: HumanDuel): void;
   /** O resultado oficial da rodada chegou (vidas já aplicadas). */
   roundConcluded(summary: RoundResultSummary): void;
   /** A partida acabou; a cena mostra a colocação depois que o jogador fechar o resultado da rodada. */
@@ -75,7 +89,7 @@ export interface SessionListener {
   connectionLost(): void;
 }
 
-/** Quem só assiste: escolhe de quem vê o tabuleiro, a loja e os duelos. */
+/** Quem só assiste (plateia, ou jogador já eliminado): escolhe de quem vê o tabuleiro e os duelos. */
 export interface SpectatorControls {
   readonly watchedPlayerId: string;
   watch(playerId: string): void;
@@ -89,6 +103,8 @@ export interface MatchSession {
   readonly match: MatchView;
   /** Regras especiais da sala em texto curto, para mostrar no começo da partida (vazio = regras normais). */
   readonly roomRules: readonly string[];
+  /** Aparência do tabuleiro e do fundo desta partida. */
+  readonly scenery: MatchScenery;
   /** Sprites a carregar antes de a partida aparecer (vazio na partida local, que usa só o desenho provisório). */
   readonly spriteSources: readonly SpriteSource[];
   /** Tempo que resta da preparação, em milissegundos. */
@@ -106,6 +122,11 @@ export interface MatchSession {
   sell(unitId: string): void;
   move(unitId: string, destination: UnitLocation): void;
   setReady(isReady: boolean): void;
+  /**
+   * Quem ainda está vivo pede para ver a luta de outro jogador enquanto ela acontece. A resposta é `combatPeekStarted`
+   * ou `actionFailed('player_not_in_combat')`. Quem já foi eliminado usa `spectator`.
+   */
+  watchCombat(playerId: string): void;
 
   /** A cena terminou de mostrar o combate (e o resultado já pode aparecer). */
   presentationFinished(): void;

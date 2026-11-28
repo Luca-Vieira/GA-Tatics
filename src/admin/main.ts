@@ -5,6 +5,9 @@ import { defaultHttpAddress } from '@shared/utils/serverAddress';
 import { renderActivitiesView } from './activitiesView';
 import { AdminClient, AdminRequestError } from './adminClient';
 import { createAttackPreview, type AttackPreview } from './attackPreview';
+import { summarizeContentChanges } from './changeSummary';
+import { renderNotesView, renderPublishPanel } from './notesView';
+import type { PatchNoteInput } from '@data/schemas/patchNote';
 import { actionButton, el, field } from './dom';
 import {
   addCharacterFrom,
@@ -47,24 +50,33 @@ import {
   parseFieldInput,
   setAt,
   synergyEffectFields,
+  type PathStep,
   type EffectType,
   type FieldSpec,
   type SynergyEffectType,
 } from './fieldSpecs';
 import { buildReferenceGuide } from './referenceGuide';
 import { DEFAULT_SPRITE_ADJUSTMENT } from './spriteAdjust';
-import { checkSpriteBytes } from './spriteFile';
+import { checkSpriteBytes, spriteRequirementsNotice } from './spriteFile';
+import type { MapPreview } from './mapPreview';
+import { applyMapsDraft, mapsDraftOf, type MapsResult } from './mapsDraft';
+import { renderMapsView } from './mapsView';
+import { applyStructuresDraft, structuresDraftOf, type StructuresResult } from './structuresDraft';
+import { renderStructuresView } from './structuresView';
 import { confirmLeavingAdjustment, discardPendingAdjustment, hasPendingAdjustment, renderSpritesView, selectSpriteTarget, type SpritesViewContext } from './spritesView';
 
-type Tab = 'characters' | TextSection | 'sprites' | 'activities';
+type Tab = 'characters' | TextSection | 'structures' | 'maps' | 'sprites' | 'notes' | 'activities';
 type Draft = Record<string, unknown>;
 
 const TAB_LABELS: Readonly<Record<Tab, string>> = {
   characters: 'Personagens',
+  structures: 'Torres e minions',
+  maps: 'Mapas',
   sprites: 'Sprites e ícones',
   synergies: 'Sinergias',
   config: 'Configuração',
   rotation: 'Rotação e distribuição',
+  notes: 'Notas',
   activities: 'Em andamento',
 };
 
@@ -87,6 +99,7 @@ interface State {
   tab: Tab;
   selectedCharacter: number;
   selectedSynergy: number;
+  selectedMap: number;
   /** Personagem selecionado, como o formulário o está editando (pode estar inválido por um momento). */
   formDraft: Draft | null;
   /** Problemas do rascunho do personagem; enquanto houver, ele não vai para o conteúdo e não dá para publicar. */
@@ -97,6 +110,8 @@ interface State {
   message: { kind: 'ok' | 'error'; text: string } | null;
   publishIssues: readonly string[];
   isBusy: boolean;
+  /** A caixa de publicação (com ou sem nota) está aberta. */
+  isChoosingNote: boolean;
 }
 
 const state: State = {
@@ -108,6 +123,7 @@ const state: State = {
   tab: 'characters',
   selectedCharacter: 0,
   selectedSynergy: 0,
+  selectedMap: 0,
   formDraft: null,
   draftIssues: [],
   draft: '',
@@ -115,6 +131,7 @@ const state: State = {
   message: null,
   publishIssues: [],
   isBusy: false,
+  isChoosingNote: false,
 };
 
 const app = document.getElementById('app') as HTMLElement;
@@ -128,6 +145,8 @@ function button(label: string, onClick: () => void, className = '', disabled = f
   return actionButton(label, onClick, className, disabled || state.isBusy);
 }
 
+/** Prévia do mapa aberto; é atualizada sem refazer a tela. */
+let mapPreview: MapPreview | null = null;
 /** Desenho da área de ataque do formulário aberto; é atualizado sem refazer a tela. */
 let attackPreview: AttackPreview | null = null;
 
@@ -207,6 +226,10 @@ function loadDraft(): void {
   } else if (state.tab === 'synergies') {
     const synergy = working.synergies[state.selectedSynergy];
     state.formDraft = synergy ? (structuredClone(synergy) as Draft) : null;
+  } else if (state.tab === 'structures') {
+    state.formDraft = structuresDraftOf(working);
+  } else if (state.tab === 'maps') {
+    state.formDraft = mapsDraftOf(working);
   } else {
     state.formDraft = null;
     state.draft = isTextSection(state.tab) ? sectionText(working, state.tab) : '';
@@ -232,7 +255,15 @@ function renderEditor(): HTMLElement {
   const working = state.working as GameContent;
 
   versionLine = el('div', { className: 'muted' });
-  publishButton = button('Publicar alterações', () => void publish(), 'good', true);
+  publishButton = button(
+    'Publicar alterações',
+    () => {
+      state.isChoosingNote = true;
+      render();
+    },
+    'good',
+    true,
+  );
   const header = el('div', { className: 'bar' }, [
     el('div', {}, [el('h1', { text: 'Administração' }), versionLine]),
     el('div', { className: 'row' }, [publishButton, button('Descartar e recarregar', () => void discard(), 'quiet'), button('Sair', () => void signOut(), 'quiet')]),
@@ -258,17 +289,35 @@ function renderEditor(): HTMLElement {
   const body = renderTabBody(working);
   statusBox = el('div');
   refreshStatus();
-  return el('div', {}, [header, el('div', { className: 'panel' }, [tabs, body]), statusBox]);
+  const publishPanel = state.isChoosingNote && canPublish() ? [renderPublishBox()] : [];
+  return el('div', {}, [header, ...publishPanel, el('div', { className: 'panel' }, [tabs, body]), statusBox]);
+}
+
+function renderPublishBox(): HTMLElement {
+  return renderPublishPanel({
+    suggestedLines: summarizeContentChanges(state.published as GameContent, state.working as GameContent),
+    publish: (note) => void publish(note),
+    cancel: () => {
+      state.isChoosingNote = false;
+      render();
+    },
+  });
 }
 
 function renderTabBody(working: GameContent): HTMLElement {
   switch (state.tab) {
     case 'characters':
       return renderCharacters(working);
+    case 'structures':
+      return renderStructures(working);
+    case 'maps':
+      return renderMaps();
     case 'sprites':
       return renderSpritesView(spritesContext());
     case 'synergies':
       return renderSynergies(working);
+    case 'notes':
+      return renderNotes();
     case 'activities':
       return renderActivities();
     default:
@@ -300,14 +349,46 @@ function spritesContext(): SpritesViewContext {
   };
 }
 
+function renderStructures(working: GameContent): HTMLElement {
+  return renderStructuresView({
+    content: working,
+    draft: () => state.formDraft as Draft,
+    renderFields,
+    renderBonusEditor,
+    commitAndRender: commitDraftAndRender,
+  });
+}
+
+function renderMaps(): HTMLElement {
+  return renderMapsView({
+    draft: () => state.formDraft as Draft,
+    selectedIndex: state.selectedMap,
+    select: (index) => {
+      state.selectedMap = index;
+      render();
+    },
+    renderFields,
+    commitAndRender: commitDraftAndRender,
+    serverUrl: state.serverUrl,
+    upload: spritesContext().upload,
+    onPreview: (preview) => (mapPreview = preview),
+  });
+}
+
+function renderNotes(): HTMLElement {
+  return renderNotesView({ client: state.client as AdminClient, onSessionExpired: expireSession });
+}
+
+function expireSession(message: string): void {
+  state.client = null;
+  state.message = { kind: 'error', text: message };
+  render();
+}
+
 function renderActivities(): HTMLElement {
   return renderActivitiesView({
     client: state.client as AdminClient,
-    onSessionExpired: (message) => {
-      state.client = null;
-      state.message = { kind: 'error', text: message };
-      render();
-    },
+    onSessionExpired: expireSession,
   });
 }
 
@@ -336,7 +417,7 @@ function refreshStatus(): void {
     children.push(el('div', { className: 'issues', text: 'Há um ajuste de sprite que não foi aplicado. Use "Aplicar ajuste" ou "Voltar ao aplicado" para poder publicar.' }));
   }
   if (state.draftIssues.length > 0) {
-    children.push(el('div', { className: 'issues', text: `Este personagem tem erros (as alterações dele ainda não valem):\n${state.draftIssues.join('\n')}` }));
+    children.push(el('div', { className: 'issues', text: `O que está em edição tem erros (as alterações ainda não valem):\n${state.draftIssues.join('\n')}` }));
   }
   children.push(
     issues.length > 0
@@ -484,6 +565,15 @@ function downloadReference(): void {
 /** Valida o rascunho; se estiver válido ele entra no conteúdo em edição. */
 function commitDraft(next: Draft): void {
   state.formDraft = next;
+  if (state.tab === 'structures') {
+    commitTabDraft(applyStructuresDraft(state.working as GameContent, next));
+    return;
+  }
+  if (state.tab === 'maps') {
+    commitTabDraft(applyMapsDraft(state.working as GameContent, next));
+    mapPreview?.update(getAt(next, ['maps', state.selectedMap]));
+    return;
+  }
   const working = state.working;
   const isSynergy = state.tab === 'synergies';
   const parsed = isSynergy ? synergySchema.safeParse(next) : characterSchema.safeParse(next);
@@ -497,6 +587,16 @@ function commitDraft(next: Draft): void {
   }
   state.message = null;
   attackPreview?.update(next);
+  refreshStatus();
+}
+
+/** Abas que editam uma parte do conteúdo de uma vez (torres e minions, mapas). */
+function commitTabDraft(result: StructuresResult | MapsResult): void {
+  if (result.ok) {
+    state.working = result.content;
+  }
+  state.draftIssues = result.ok ? [] : result.issues;
+  state.message = null;
   refreshStatus();
 }
 
@@ -708,7 +808,8 @@ function renderSpriteSection(draft: Draft): HTMLElement {
   }
 
   content.append(
-    el('div', { className: 'note', text: 'PNG com fundo transparente, de até 1 MB e 1024×1024 pixels, com o personagem de pé, de perfil, olhando para a DIREITA (o jogo espelha a imagem para a esquerda). Para acertar posição, tamanho e pés vendo o resultado, use "Ajustar com prévia" (aba "Sprites e ícones").' }),
+    spriteRequirementsNotice(),
+    el('div', { className: 'note', text: 'O personagem deve estar de pé, de perfil, olhando para a DIREITA (o jogo espelha a imagem quando ele ataca para a esquerda). Se a arte olhar para a esquerda, marque "Espelhar a imagem". Para acertar posição, tamanho e pés vendo o resultado, use "Ajustar com prévia" (aba "Sprites e ícones").' }),
     el('div', { className: 'row top' }, [preview, el('div', {}, [actions, status])]),
   );
   if (sprite?.path) {
@@ -852,6 +953,22 @@ function renderSynergyForm(draft: Draft): HTMLElement {
   return form;
 }
 
+/** Um bônus (de sinergia ou de torre): o tipo, os valores e o botão de remover. */
+function renderBonusEditor(effect: unknown, effectPath: readonly PathStep[], onRemove: () => void): HTMLElement {
+  const typeSelect = el('select');
+  for (const option of SYNERGY_EFFECT_TYPE_OPTIONS) typeSelect.append(el('option', { value: option.value, text: option.label }));
+  typeSelect.value = String(getAt(effect, ['type']));
+  typeSelect.addEventListener('change', () => {
+    if (window.confirm('Trocar o tipo do bônus apaga os valores dele. Continuar?')) {
+      commitDraftAndRender(setAt(state.formDraft as Draft, effectPath, newSynergyEffect(typeSelect.value as SynergyEffectType)));
+    } else {
+      typeSelect.value = String(getAt(effect, ['type']));
+    }
+  });
+  const header = el('div', { className: 'row' }, [typeSelect, button('Remover bônus', onRemove, 'quiet')]);
+  return el('div', { className: 'effect inner' }, [header, el('div', { className: 'grid' }, synergyEffectFields(effect, effectPath).map((spec) => renderField(spec)))]);
+}
+
 function renderTiers(draft: Draft): HTMLElement {
   const tiers = (getAt(draft, ['tiers']) as unknown[] | undefined) ?? [];
   const container = el('div', { className: 'effects' });
@@ -881,32 +998,16 @@ function renderTiers(draft: Draft): HTMLElement {
 
     effects.forEach((effect, effectIndex) => {
       const effectPath = [...tierPath, 'effects', effectIndex];
-      const typeSelect = el('select');
-      for (const option of SYNERGY_EFFECT_TYPE_OPTIONS) typeSelect.append(el('option', { value: option.value, text: option.label }));
-      typeSelect.value = String(getAt(effect, ['type']));
-      typeSelect.addEventListener('change', () => {
-        if (window.confirm('Trocar o tipo do bônus apaga os valores dele. Continuar?')) {
-          commitDraftAndRender(setAt(state.formDraft as Draft, effectPath, newSynergyEffect(typeSelect.value as SynergyEffectType)));
-        } else {
-          typeSelect.value = String(getAt(effect, ['type']));
-        }
-      });
-      const effectHeader = el('div', { className: 'row' }, [
-        typeSelect,
-        button(
-          'Remover bônus',
-          () => {
-            if (effects.length <= 1) {
-              state.message = { kind: 'error', text: 'Todo nível precisa de ao menos um bônus.' };
-              refreshStatus();
-              return;
-            }
-            commitDraftAndRender(setAt(state.formDraft as Draft, effectPath, undefined));
-          },
-          'quiet',
-        ),
-      ]);
-      box.append(el('div', { className: 'effect inner' }, [effectHeader, el('div', { className: 'grid' }, synergyEffectFields(effect, effectPath).map((spec) => renderField(spec)))]));
+      box.append(
+        renderBonusEditor(effect, effectPath, () => {
+          if (effects.length <= 1) {
+            state.message = { kind: 'error', text: 'Todo nível precisa de ao menos um bônus.' };
+            refreshStatus();
+            return;
+          }
+          commitDraftAndRender(setAt(state.formDraft as Draft, effectPath, undefined));
+        }),
+      );
     });
 
     const addSelect = el('select');
@@ -1049,14 +1150,16 @@ function renderTextSection(tab: TextSection, working: GameContent): HTMLElement 
 
 // --- Ações --------------------------------------------------------------------------------------
 
-async function publish(): Promise<void> {
-  if (!state.client || !state.working) return;
+async function publish(note?: PatchNoteInput): Promise<void> {
+  // O que foi editado depois de abrir a caixa de publicação pode ter deixado o conteúdo inválido.
+  if (!state.client || !state.working || !canPublish()) return;
+  state.isChoosingNote = false;
   state.isBusy = true;
   state.message = null;
   state.publishIssues = [];
   render();
   try {
-    const result = await state.client.publish(state.version, state.working);
+    const result = await state.client.publish(state.version, state.working, note);
     if (result.ok) {
       state.published = cloneContent(state.working);
       state.version = result.version;

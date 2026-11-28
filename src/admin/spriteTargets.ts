@@ -1,5 +1,6 @@
 /** Tudo o que pode receber um sprite pelo painel: os personagens e os sprites auxiliares (torre, invocações, clones). */
-import { auxiliarySpriteSlotsOf, TOWER_SPRITE_KEY } from '@data/auxiliarySprites';
+import { isTowerId } from '@core/tower/tower';
+import { auxiliarySpriteSlotsOf } from '@data/auxiliarySprites';
 import type { SpriteDefinition } from '@data/schemas/character';
 import type { GameContent } from '@data/schemas/content';
 import { MELEE_BODY_SCALE, RANGED_BODY_SCALE, SUMMON_BODY_SCALE } from './spriteAdjust';
@@ -43,12 +44,12 @@ function characterTargets(content: GameContent): SpriteTarget[] {
 }
 
 function auxiliaryTarget(key: string, label: string, isUsed: boolean): SpriteTarget {
-  const bodyScale = key === TOWER_SPRITE_KEY ? MELEE_BODY_SCALE : SUMMON_BODY_SCALE;
+  const bodyScale = isTowerId(key) ? MELEE_BODY_SCALE : SUMMON_BODY_SCALE;
   return { kind: 'auxiliary', key, label, bodyScale, isUsed };
 }
 
 function auxiliaryTargets(content: GameContent): SpriteTarget[] {
-  const slots = auxiliarySpriteSlotsOf(content.characters);
+  const slots = auxiliarySpriteSlotsOf(content.characters, content.config.tower.variants);
   const usedKeys = new Set(slots.map((slot) => slot.key));
   const leftoverKeys = Object.keys(content.auxiliarySprites).filter((key) => !usedKeys.has(key));
   return [...slots.map((slot) => auxiliaryTarget(slot.key, slot.label, true)), ...leftoverKeys.map((key) => auxiliaryTarget(key, key, false))];

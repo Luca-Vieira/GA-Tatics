@@ -8,6 +8,7 @@ export interface TeamBonuses {
   /** Multiplicadores estáticos aplicados aos atributos antes do primeiro passo. */
   readonly damageMultiplier: number;
   readonly attackSpeedMultiplier: number;
+  readonly maxHealthMultiplier: number;
   /** Fração por que o tempo de recarga das habilidades diminui (0,15 = 15% mais rápido). */
   readonly cooldownReduction: number;
   /** Fração extra aplicada aos efeitos positivos das habilidades (cura, escudos e bônus). */
@@ -21,6 +22,7 @@ export const NO_BONUSES: TeamBonuses = {
   resistance: 0,
   damageMultiplier: 1,
   attackSpeedMultiplier: 1,
+  maxHealthMultiplier: 1,
   cooldownReduction: 0,
   positiveEffectAmplification: 0,
   regenFraction: 0,

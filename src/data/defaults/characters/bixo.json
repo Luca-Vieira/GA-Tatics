@@ -11,13 +11,14 @@
   "ability": {
     "id": "defensive_stance",
     "name": "Descansar, né",
-    "description": "Postura Defensiva: ao ficar com metade da vida, Bixo para de atacar, senta e reduz drasticamente o dano recebido por alguns segundos.",
+    "description": "Postura Defensiva: ao ficar com metade da vida, Bixo para de atacar, senta e reduz drasticamente o dano recebido por alguns segundos. Os aliados a até 2 casas também se protegem (25% menos dano).",
     "activation": { "type": "health_threshold", "belowFraction": 0.5 },
     "cooldownSeconds": 20,
-    "cast": { "target": "self", "range": 0 },
+    "cast": { "target": "self", "range": 0, "areaRadius": 2 },
     "effects": [
       { "type": "status", "targets": "self", "status": "damage_reduction", "value": 0.7, "durationSeconds": 4 },
-      { "type": "status", "targets": "self", "status": "resting", "durationSeconds": 4 }
+      { "type": "status", "targets": "self", "status": "resting", "durationSeconds": 4 },
+      { "type": "status", "targets": "allies_in_area", "status": "damage_reduction", "value": 0.25, "durationSeconds": 4 }
     ],
     "visual": { "kind": "aura", "color": "#9ca3af", "icon": "🪑" }
   }

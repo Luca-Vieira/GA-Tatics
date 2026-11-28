@@ -14,6 +14,7 @@ export interface LobbyState {
   readonly hasPassword: boolean;
   readonly modifiers: RoomModifiers;
   readonly maximumPlayers: number;
+  readonly mapId: string | null;
 }
 
 const EMPTY_STATE: LobbyState = {
@@ -25,6 +26,7 @@ const EMPTY_STATE: LobbyState = {
   hasPassword: false,
   modifiers: NO_ROOM_MODIFIERS,
   maximumPlayers: DEFAULT_PLAYERS_PER_ROOM,
+  mapId: null,
 };
 
 /** O que quem cria a sala escolhe. */
@@ -33,6 +35,8 @@ export interface CreateRoomOptions {
   readonly password?: string;
   readonly modifiers?: Partial<RoomModifiers>;
   readonly maximumPlayers?: number;
+  /** Sem ele, o mapa é sorteado. */
+  readonly mapId?: string;
 }
 
 export const SERVER_ERROR_MESSAGES: Readonly<Record<ServerErrorCode, string>> = {
@@ -131,6 +135,7 @@ export class LobbyClient {
       ...(options.password ? { password: options.password } : {}),
       modifiers: { ...NO_ROOM_MODIFIERS, ...options.modifiers },
       maximumPlayers: options.maximumPlayers ?? DEFAULT_PLAYERS_PER_ROOM,
+      ...(options.mapId ? { mapId: options.mapId } : {}),
     });
   }
 
@@ -212,6 +217,7 @@ export class LobbyClient {
           hasPassword: message.hasPassword,
           modifiers: message.modifiers,
           maximumPlayers: message.maximumPlayers,
+          mapId: message.mapId,
         });
         return;
       case 'room_list':

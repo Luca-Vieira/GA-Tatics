@@ -23,9 +23,15 @@ export interface AuxiliarySpriteSlot {
   readonly label: string;
 }
 
-/** Tudo o que pode receber um sprite auxiliar com o conteúdo atual: a torre e cada invocação ou clone do elenco. */
-export function auxiliarySpriteSlotsOf(characters: readonly CharacterDefinition[]): AuxiliarySpriteSlot[] {
-  const labelsByKey = new Map<string, string>([[TOWER_SPRITE_KEY, 'Torre']]);
+/**
+ * Tudo o que pode receber um sprite auxiliar com o conteúdo atual: a torre básica, as torres personalizadas (a chave é o
+ * id delas) e cada invocação ou clone do elenco.
+ */
+export function auxiliarySpriteSlotsOf(
+  characters: readonly CharacterDefinition[],
+  towerVariants: readonly { readonly id: string; readonly name: string }[] = [],
+): AuxiliarySpriteSlot[] {
+  const labelsByKey = new Map<string, string>([[TOWER_SPRITE_KEY, 'Torre'], ...towerVariants.map((tower): [string, string] => [tower.id, tower.name])]);
   for (const character of characters) {
     for (const name of summonedNamesOf(character)) {
       labelsByKey.set(auxiliarySpriteKeyOf(name), name);
